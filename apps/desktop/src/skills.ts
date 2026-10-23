@@ -3,6 +3,8 @@ import type { DesktopApi, SkillEntryView, SkillsInventoryView } from './types';
 const kindLabels: Record<string, string> = {
   omh_managed: 'OMH 管理', lkm_projected: 'ATM 投影', symlink: '链接', directory: '本地目录', other: '普通文件',
 };
+const canCopy = (entry: SkillEntryView): boolean =>
+  entry.kind === 'directory' || (entry.kind === 'lkm_projected' && entry.linkTarget === null);
 const node = (tag: string, text?: string, className?: string): HTMLElement => {
   const result = document.createElement(tag); if (text !== undefined) result.textContent = text; if (className) result.className = className; return result;
 };
@@ -110,6 +112,10 @@ export class SkillsPanel {
     disable('pick-skills-source', false);
     disable('install-skill', !this.input('skills-source').value || !this.input('skills-name').value || !this.input('confirm-skills-install').checked || !this.select('skills-target-root').value);
     disable('copy-skill', !this.copySource || !this.input('confirm-skills-copy').checked || !this.select('copy-target-root').value);
+    // DesktopApp resets all controls before delegating capability restrictions.
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>('#skills-roots button[data-skills-action-allowed]')) {
+      button.disabled = this.busy || !this.loaded || button.dataset.skillsActionAllowed !== 'true';
+    }
   }
   /** Fetches and renders without the busy gate; for use inside an outer run. */
   private async refreshQuiet(): Promise<void> {
@@ -174,6 +180,8 @@ export class SkillsPanel {
     });
   }
   private chooseCopySource(rootId: string, name: string): void {
+    const entry = this.inventory?.roots.find(root => root.id === rootId)?.entries.find(item => item.name === name);
+    if (!entry || !canCopy(entry)) return;
     this.clearCopyConfirmation();
     this.copySource = { rootId, name };
     this.get('copy-source-label').textContent = `源：${rootId} / ${name}`;
@@ -211,17 +219,21 @@ export class SkillsPanel {
     const locked = entry.kind === 'omh_managed' || entry.kind === 'symlink';
     const projected = entry.kind === 'lkm_projected';
     const buttons: HTMLElement[] = [];
-    const button = (text: string, action: () => void, className = 'text-button'): HTMLButtonElement => {
+    const button = (text: string, action: () => void, className = 'text-button', allowed = true): HTMLButtonElement => {
       const element = document.createElement('button'); element.type = 'button'; element.textContent = text;
-      element.className = className; if (locked) element.disabled = true;
+      element.className = className; element.dataset.skillsActionAllowed = String(allowed);
+      element.disabled = this.busy || !this.loaded || !allowed;
       element.addEventListener('click', action); return element;
     };
-    buttons.push(button('复制到…', () => this.chooseCopySource(rootId, entry.name)));
+    buttons.push(button('复制到…', () => this.chooseCopySource(rootId, entry.name), 'text-button', canCopy(entry)));
     if (entry.kind === 'directory') {
       buttons.push(button('卸载', () => this.uninstall(rootId, entry), 'text-button danger-text'));
     }
     if (locked) buttons.push(node('span', entry.kind === 'omh_managed' ? '由 OMH 管理' : '外部链接 · 只读', 'pill'));
-    if (projected) buttons.push(node('span', '由 ATM 投影管理', 'pill'));
+    if (projected) {
+      buttons.push(node('span', '由 ATM 投影管理', 'pill'));
+      if (!canCopy(entry)) buttons.push(node('span', '链接投影不支持复制；追加投影请用 atm skills project。', 'help'));
+    }
     return buttons;
   }
   private renderRoots(inventory: SkillsInventoryView): void {

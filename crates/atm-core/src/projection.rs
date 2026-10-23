@@ -9,7 +9,7 @@
 //! refusal discipline.
 use crate::skills::{
     auditable_source, checked_name, copy_tree, is_link_metadata, path_within, read_bounded,
-    target_root_dir, user_home, CopyBudget,
+    require_unprotected_skill_path, target_root_dir, user_home, CopyBudget,
 };
 use crate::{storage, windows, Error, Result};
 use serde::{Deserialize, Serialize};
@@ -163,7 +163,13 @@ impl ProjectionRegistry {
             }
             for projection in &record.projections {
                 checked_name(&projection.link_name)?;
-                target_root_dir(&self.home, &projection.root_id)?;
+                // Keep receipts readable if a tool root is redirected into the
+                // protected shared directory. Every access still checks the root.
+                if let Err(error) = target_root_dir(&self.home, &projection.root_id) {
+                    if error.code != "SKILLS_PROTECTED" {
+                        return Err(error);
+                    }
+                }
                 if projection.link_name != record.name
                     || !targets.insert((&projection.root_id, &projection.link_name))
                 {
@@ -227,6 +233,7 @@ impl ProjectionRegistry {
     pub fn publish(&self, source: &Path, name: &str, targets: &[String]) -> Result<Vec<String>> {
         let _lock = self.lock()?;
         checked_name(name)?;
+        require_unprotected_skill_path(&self.home, source)?;
         auditable_source(source)?;
         let manager_home = crate::omh::resolve_manager_home(
             std::env::var_os("OH_MY_HARNESS_HOME").as_deref(),
@@ -685,6 +692,10 @@ impl ProjectionRegistry {
             }
             for projection in &record.projections {
                 let (status, detail) = match target_root_dir(&self.home, &projection.root_id) {
+                    Err(error) if error.code == "SKILLS_PROTECTED" => (
+                        "broken_link",
+                        Some("工具根指向受保护的共享技能目录".to_owned()),
+                    ),
                     Err(_) => ("broken_link", Some("未知工具根".to_owned())),
                     Ok(root_dir) => {
                         let target = root_dir.join(&projection.link_name);

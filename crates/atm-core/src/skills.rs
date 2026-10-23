@@ -334,6 +334,17 @@ pub(crate) fn path_within(path: &Path, root: &Path) -> bool {
     normalized_path(path, 0).starts_with(normalized_path(root, 0))
 }
 
+/// Shared agent skills are outside ATM ownership, including root/ancestor aliases.
+pub(crate) fn require_unprotected_skill_path(home: &Path, path: &Path) -> Result<()> {
+    if path_within(path, &home.join(".agents/skills")) {
+        return Err(Error::new(
+            "SKILLS_PROTECTED",
+            "共享 .agents/skills 目录不由 ATM 管理；已拒绝访问。",
+        ));
+    }
+    Ok(())
+}
+
 /// One bounded recursive copy plan. Links and unusual file types are rejected
 /// so every installed byte is auditable plain content.
 pub(crate) struct CopyBudget {
@@ -408,8 +419,9 @@ pub(crate) fn auditable_source(source: &Path) -> Result<()> {
 }
 
 pub(crate) fn target_root_dir(home: &Path, root_id: &str) -> Result<PathBuf> {
-    let spec = root_spec(root_id)?;
-    Ok(spec.resolve(home))
+    let root = root_spec(root_id)?.resolve(home);
+    require_unprotected_skill_path(home, &root)?;
+    Ok(root)
 }
 
 // New collision records use a reserved container, retaining the original name
@@ -601,14 +613,20 @@ impl SkillsService {
         let records = self.projection_records()?;
         let mut roots = Vec::new();
         for spec in ROOTS {
-            let root_dir = spec.resolve(&self.home);
+            let root_dir = match target_root_dir(&self.home, spec.id) {
+                Ok(root) => root,
+                Err(error) if error.code == "SKILLS_PROTECTED" => continue,
+                Err(error) => return Err(error),
+            };
             let mut entries = Vec::new();
             let exists = root_dir.is_dir();
             if exists {
                 for entry in fs::read_dir(&root_dir).map_err(Error::io)? {
                     let entry = entry.map_err(Error::io)?;
                     let entry_name = entry.file_name().to_string_lossy().into_owned();
-                    if entry_name.starts_with('.') {
+                    if entry_name.starts_with('.')
+                        || require_unprotected_skill_path(&self.home, &entry.path()).is_err()
+                    {
                         continue;
                     }
                     if entries.len() >= MAX_ENTRIES_PER_ROOT {
@@ -717,6 +735,7 @@ impl SkillsService {
         let _guard = self.projection_guard()?;
         checked_name(name)?;
         self.reject_registered(root_id, name)?;
+        require_unprotected_skill_path(&self.home, source)?;
         if self
             .manager_home
             .as_ref()
@@ -771,6 +790,7 @@ impl SkillsService {
             ));
         }
         let target = target_root_dir(&self.home, root_id)?.join(name);
+        require_unprotected_skill_path(&self.home, &target)?;
         if self
             .manager_home
             .as_ref()

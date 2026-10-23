@@ -27,6 +27,7 @@ const messages: Record<string, string> = {
   OMH_REQUEST: 'OMH 操作或目标无效，请重新选择。',
   OMH_OPERATION_FAILED: 'OMH 操作未完成，可能有部分变更；请核对状态并在终端诊断。',
   OMH_HOME: '无法确定用户主目录，无法定位 oh-my-harness。',
+  SKILLS_PROTECTED: '共享 .agents/skills 目录不由 ATM 管理；已拒绝访问。',
   SKILLS_SOURCE: '请选择包含 SKILL.md 的本机普通技能目录。',
   SKILLS_UNAUDITABLE: '技能目录包含链接或非常规文件，内容无法完整审计，已拒绝。',
   SKILLS_LIMIT: '技能超出大小、文件数或嵌套深度的安全上限。',

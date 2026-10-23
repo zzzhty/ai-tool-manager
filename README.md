@@ -51,7 +51,7 @@ atm skills install <SOURCE_DIR> <ROOT> [NAME]                 # 单根复制安�
 atm skills uninstall <ROOT> <NAME> / copy <SRC> <NAME> <DST> / restore <TRASH_ID> / purge <TRASH_ID> / trash
 ```
 
-投影模型：发布时技能源被收编为本管理器数据目录下的 canonical 副本，投影在 POSIX 用符号链接、Windows 用普通复制（无特权要求；`check` 会逐文件比对副本，`refresh --force` 覆盖被修改副本）。刷新先在目标根的隐藏暂存目录完整审计/复制，成功后受控交接并更新目录身份登记；复制、替换或登记失败会保留/恢复旧副本。缺失的 skills 根经路径与 OMH 边界检查后重建；仍有缺源、未授权覆盖修改或所有权未知时，CLI `refresh` 返回非 0。强制中断可能留下 `.lkm-refresh-old-*` 或 `.lkm-staging-*`，需按错误提示核对保留内容，不应直接删除。GUI 的技能盘点会把 ATM 投影标注为“由 ATM 投影管理”，其撤除仅通过 `atm skills unproject`，保证登记一致。
+投影模型：发布时技能源被收编为本管理器数据目录下的 canonical 副本，投影在 POSIX 用符号链接、Windows 用普通复制（无特权要求；`check` 会逐文件比对副本，`refresh --force` 覆盖被修改副本）。刷新先在目标根的隐藏暂存目录完整审计/复制，成功后受控交接并更新目录身份登记；复制、替换或登记失败会保留/恢复旧副本。缺失的 skills 根经路径与 OMH 边界检查后重建；仍有缺源、未授权覆盖修改或所有权未知时，CLI `refresh` 返回非 0。强制中断可能留下 `.lkm-refresh-old-*` 或 `.lkm-staging-*`，需按错误提示核对保留内容，不应直接删除。GUI 的技能盘点会把 ATM 投影标注为“由 ATM 投影管理”；POSIX 链接投影不提供跨根复制，追加投影使用 `atm skills project`；Windows 普通副本仍可复制。投影撤除仅通过 `atm skills unproject`，保证登记一致。
 
 ## 构建与验证
 
