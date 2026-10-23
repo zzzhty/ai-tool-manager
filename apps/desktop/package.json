@@ -1,0 +1,24 @@
+{
+  "name": "@ai-tool-manager/desktop",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc --noEmit && vite build",
+    "tauri:build": "tauri build --no-bundle",
+    "tauri:build:macos": "tauri build --bundles app --config src-tauri/tauri.macos.conf.json"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.8.0",
+    "@tauri-apps/plugin-dialog": "^2.4.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.8.0",
+    "happy-dom": "^20.0.8",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.12",
+    "vitest": "5.0.4"
+  }
+}

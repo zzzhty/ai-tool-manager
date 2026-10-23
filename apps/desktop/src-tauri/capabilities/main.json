@@ -1,0 +1,44 @@
+{
+  "identifier": "main",
+  "description": "Only the bundled main window may invoke bounded manager commands and the explicit file picker.",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "windows",
+    "linux",
+    "macOS"
+  ],
+  "permissions": [
+    "dialog:allow-open",
+    "allow-snapshot",
+    "allow-save-key",
+    "allow-delete-key",
+    "allow-save-target",
+    "allow-delete-target",
+    "allow-preview",
+    "allow-apply-preview",
+    "allow-cancel-preview",
+    "allow-list-backups",
+    "allow-preview-rollback",
+    "allow-infer-template",
+    "allow-save-template",
+    "allow-delete-template",
+    "allow-initialize-storage",
+    "allow-configure-codex-cli",
+    "allow-disconnect-codex-cli",
+    "allow-query-codex-usage",
+    "allow-query-glm-usage",
+    "allow-omh-status",
+    "allow-skills-inventory",
+    "allow-skills-install",
+    "allow-skills-uninstall",
+    "allow-skills-restore",
+    "allow-skills-purge",
+    "allow-skills-copy",
+    "allow-report-linux-smoke",
+    "allow-omh-capabilities",
+    "allow-omh-execute",
+    "allow-omh-diagnose"
+  ]
+}

@@ -1,0 +1,35 @@
+[package]
+name = "atm"
+default-run = "atm-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[features]
+default = ["desktop"]
+desktop = ["dep:tauri", "dep:tauri-plugin-dialog"]
+smoke-tests = []
+
+[[bin]]
+name = "atm-desktop"
+path = "src/main.rs"
+required-features = ["desktop"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+png = "0.18"
+
+[dependencies]
+tauri = { version = "2", features = [], optional = true }
+tauri-plugin-dialog = { version = "2", optional = true }
+atm-core = { path = "../../../crates/atm-core" }
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+zeroize.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+tempfile = "3.23"
+

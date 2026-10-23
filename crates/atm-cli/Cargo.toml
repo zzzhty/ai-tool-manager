@@ -1,0 +1,16 @@
+[package]
+name = "atm-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "atm"
+path = "src/main.rs"
+
+[dependencies]
+atm-core = { path = "../atm-core" }
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3.23"

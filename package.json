@@ -1,0 +1,15 @@
+{
+  "name": "ai-tool-manager-workspace",
+  "version": "0.2.0",
+  "private": true,
+  "workspaces": [
+    "apps/desktop"
+  ],
+  "scripts": {
+    "check": "npm --workspace apps/desktop run check",
+    "test": "npm --workspace apps/desktop run test",
+    "build": "npm --workspace apps/desktop run build",
+    "tauri:build": "npm --workspace apps/desktop run tauri:build",
+    "tauri:build:macos": "npm --workspace apps/desktop run tauri:build:macos --"
+  }
+}

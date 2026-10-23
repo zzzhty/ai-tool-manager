@@ -1,0 +1,308 @@
+name: Rust Tauri and synthetic compatibility
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      validation_scope:
+        description: Validation scope (linux-gui reuses prior successful platform jobs)
+        type: choice
+        default: all
+        options: [all, linux-gui]
+run-name: Native validation (${{ github.event_name == 'workflow_dispatch' && inputs.validation_scope || 'all' }})
+permissions:
+  contents: read
+concurrency:
+  group: rust-ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  core:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.validation_scope != 'linux-gui' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Restore Rust compiler cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ github.repository }}-rust-v2-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-${{ github.repository }}-rust-v2-${{ hashFiles('Cargo.lock') }}-
+      - name: Rust stable components
+        run: rustup component add rustfmt clippy
+      - name: Check formatting
+        id: format
+        continue-on-error: true
+        run: cargo fmt --all --check
+      - name: Core static checks
+        run: cargo clippy --locked -p atm-core -p atm-cli -p atm --no-default-features --all-targets -- -D warnings
+      - name: Isolated default ACL regression
+        run: cargo test --locked -p atm-core --test linux inherited_default_acl_cannot_grant_new_access_on_config_replacement -- --exact --nocapture
+      - name: Core and schema synthetic tests
+        if: always() && !cancelled()
+        run: cargo test --locked -p atm-core -p atm-cli -p atm --no-default-features --all-targets
+      - name: Prepare reproducibility artifacts
+        if: always()
+        run: |
+          cargo fmt --all
+          git diff --binary > rustfmt.patch
+          tar -czf rust-source-format.tar.gz crates apps/desktop/src-tauri Cargo.toml Cargo.lock
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rust-reproducibility
+          path: |
+            rustfmt.patch
+            rust-source-format.tar.gz
+            Cargo.lock
+      - name: Save Rust compiler cache
+        if: always() && !cancelled()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ github.repository }}-rust-v2-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+      - name: Require clean formatting
+        if: always() && steps.format.outcome != 'success'
+        run: exit 1
+  linux-desktop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Install isolated Linux build and test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libdbus-1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev gnome-keyring dbus-x11 xvfb
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: linux-desktop-${{ github.repository }}-v2-${{ hashFiles('Cargo.lock') }}-${{ github.event.pull_request.head.sha || github.sha }}
+          restore-keys: linux-desktop-${{ github.repository }}-v2-${{ hashFiles('Cargo.lock') }}-
+      - name: Record exact tested head
+        run: |
+          mkdir -p artifacts/linux-ci
+          git rev-parse HEAD | tee artifacts/linux-ci/tested-sha.txt
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Frontend checks and production assets
+        run: |
+          npm ci --ignore-scripts
+          npm run check
+          npm test
+          npm run build
+      - name: Native Linux static checks
+        run: cargo clippy --locked --workspace --all-targets --features smoke-tests -- -D warnings
+      - name: Real isolated Secret Service lifecycle
+        env:
+          LKM_ISOLATED_KEYRING_TEST: '1'
+        run: |
+          set -o pipefail
+          export LKM_TEST_ROOT="$RUNNER_TEMP/lkm-keyring-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          dbus-run-session -- bash scripts/Test-LinuxKeyring.sh 2>&1 | tee artifacts/linux-ci/keyring.log
+          python3 -c 'from pathlib import Path; s=Path("artifacts/linux-ci/keyring.log").read_text(); assert "SECRET_SERVICE_LIFECYCLE_PHASE=PASS (create)" in s and "SECRET_SERVICE_LIFECYCLE_PHASE=PASS (reopen)" in s and "SECRET_SERVICE_LIFECYCLE=PASS:" in s'
+      - name: Build native Linux Tauri executable
+        run: cargo build --locked --release -p atm --features smoke-tests
+      - name: Native Linux fake-data GUI smoke
+        run: xvfb-run -a dbus-run-session -- bash scripts/Test-LinuxGui.sh
+      - name: Preserve Linux native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-native-ci-evidence
+          path: |
+            artifacts/linux-ci
+            artifacts/linux-gui
+      - name: Preserve Linux preview executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: atm-linux-x64
+          path: target/release/atm-desktop
+          if-no-files-found: error
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: linux-desktop-${{ github.repository }}-v2-${{ hashFiles('Cargo.lock') }}-${{ github.event.pull_request.head.sha || github.sha }}
+  desktop:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.validation_scope != 'linux-gui' }}
+    runs-on: windows-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Verify tracked source
+        id: audit
+        run: ./scripts/Audit-TrackedSource.ps1 -Mode Head
+      - name: Install frontend dependencies
+        id: install
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Frontend type check
+        if: always() && !cancelled() && steps.audit.outcome == 'success' && steps.install.outcome == 'success'
+        run: npm run check
+      - name: Frontend component tests
+        if: always() && !cancelled() && steps.audit.outcome == 'success' && steps.install.outcome == 'success'
+        run: npm test
+      - name: Frontend production build
+        if: always() && !cancelled() && steps.audit.outcome == 'success' && steps.install.outcome == 'success'
+        run: npm run build
+      - name: Restore Rust compiler cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ github.repository }}-rust-v2-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-${{ github.repository }}-rust-v2-${{ hashFiles('Cargo.lock') }}-
+      - name: Rust static checks
+        if: always() && !cancelled() && steps.audit.outcome == 'success' && steps.install.outcome == 'success'
+        run: |
+          rustup component add clippy
+          New-Item -ItemType Directory -Force artifacts/diagnostics | Out-Null
+          cargo clippy --locked --workspace --all-targets -- -D warnings 2>&1 | Tee-Object artifacts/diagnostics/clippy.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Preserve Windows static diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-static-diagnostics
+          path: artifacts/diagnostics/clippy.log
+      - name: Windows core synthetic tests
+        if: always() && !cancelled() && steps.audit.outcome == 'success' && steps.install.outcome == 'success'
+        run: |
+          New-Item -ItemType Directory -Force artifacts/diagnostics | Out-Null
+          cargo test --locked -p atm-core -p atm-cli --all-targets 2>&1 | Tee-Object artifacts/diagnostics/core.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Preserve Windows core diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-core-diagnostics
+          path: artifacts/diagnostics/core.log
+      - name: Desktop service metadata tests
+        if: always() && !cancelled() && steps.audit.outcome == 'success' && steps.install.outcome == 'success'
+        run: cargo test --locked -p atm
+      - name: Build Windows Tauri executable
+        if: always() && !cancelled() && steps.audit.outcome == 'success' && steps.install.outcome == 'success'
+        id: tauri
+        run: npm run tauri:build
+      - name: Isolated Windows Tauri GUI smoke
+        if: always() && !cancelled() && steps.tauri.outcome == 'success'
+        run: ./scripts/Test-TauriGui.ps1
+      - name: Preserve Windows executable
+        if: always() && steps.tauri.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: atm-windows-x64
+          path: target/release/atm-desktop.exe
+          if-no-files-found: error
+      - name: Preserve GUI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-gui-smoke
+          path: artifacts/tauri-gui
+      - name: Preserve dependency resolution
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-locks
+          path: |
+            Cargo.lock
+            package-lock.json
+      - name: Save Rust compiler cache
+        if: always() && !cancelled() && steps.audit.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ github.repository }}-rust-v2-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+
+
+  macos-desktop:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.validation_scope != 'linux-gui' }}
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      LKM_SKILLS_LIVE: '0'
+      LKM_OMH_LIVE: '0'
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Record exact native platform and source
+        run: |
+          test "$(uname -m)" = arm64
+          mkdir -p artifacts/macos-ci
+          git rev-parse HEAD > artifacts/macos-ci/tested-sha.txt
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: macos-native-${{ github.repository_id }}-${{ hashFiles('Cargo.lock') }}-${{ github.event.pull_request.head.sha || github.sha }}
+          restore-keys: macos-native-${{ github.repository_id }}-${{ hashFiles('Cargo.lock') }}-
+      - name: Restore locked development dependencies
+        run: |
+          rustup component add rustfmt clippy
+          npm ci --ignore-scripts
+          cargo fetch --locked --target aarch64-apple-darwin
+      - name: Native isolated validation without signing or installation
+        run: |
+          export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
+          bash scripts/Verify-MacOS.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-native-synthetic-evidence
+          path: |
+            artifacts/macos-ci
+            artifacts/macos-gui
+      - uses: actions/cache/save@v4
+        if: always() && !cancelled()
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: macos-native-${{ github.repository_id }}-${{ hashFiles('Cargo.lock') }}-${{ github.event.pull_request.head.sha || github.sha }}
