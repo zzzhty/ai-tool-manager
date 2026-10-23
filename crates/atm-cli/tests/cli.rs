@@ -59,6 +59,10 @@ impl Env {
 }
 
 fn atm(env: &Env, arguments: &[&str]) -> std::process::Output {
+    atm_command(env, arguments).output().unwrap()
+}
+
+fn atm_command(env: &Env, arguments: &[&str]) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_atm"));
     command.args(arguments);
     // Inherited tool-root overrides must never escape the fixture home.
@@ -75,7 +79,7 @@ fn atm(env: &Env, arguments: &[&str]) -> std::process::Output {
     for (key, value) in env.vars() {
         command.env(key, &value);
     }
-    command.output().unwrap()
+    command
 }
 
 fn assert_ok(output: &std::process::Output) {
@@ -561,4 +565,98 @@ fn refresh_reports_nonzero_for_unforced_edits_and_unknown_ownership() {
         assert!(String::from_utf8_lossy(&output.stdout).contains("ownership_unknown"));
         assert!(String::from_utf8_lossy(&output.stderr).contains("PROJECTION_BROKEN"));
     }
+}
+
+#[test]
+fn environment_override_cannot_expose_or_change_shared_agent_skills() {
+    let env = Env::new();
+    let source = write_skill(env.sources.path(), "source");
+    assert_ok(&atm(
+        &env,
+        &[
+            "skills",
+            "install",
+            source.to_str().unwrap(),
+            "codex",
+            "restore-me",
+        ],
+    ));
+    assert_ok(&atm(&env, &["skills", "uninstall", "codex", "restore-me"]));
+    assert_ok(&atm(
+        &env,
+        &[
+            "skills",
+            "publish",
+            source.to_str().unwrap(),
+            "--name",
+            "owned",
+            "--to",
+            "codex",
+        ],
+    ));
+    let shared = env.home.path().join(".agents/skills");
+    let kept = write_skill(&shared, "kept");
+    let before = fs::read(kept.join("SKILL.md")).unwrap();
+    let registry = env.manager_data().join("skills-sources/registry.json");
+    let receipt = fs::read(&registry).unwrap();
+    let run = |args: &[&str]| {
+        atm_command(&env, args)
+            .env("CODEX_HOME", env.home.path().join(".agents"))
+            .output()
+            .unwrap()
+    };
+    let output = run(&["skills", "inventory", "--json"]);
+    assert_ok(&output);
+    let inventory: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(inventory["roots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|r| r["id"] != "codex"));
+    let check = run(&["skills", "check", "owned", "--json"]);
+    assert_code(&check, 1);
+    assert_eq!(json_items(&check)[0]["status"], "broken_link");
+    for args in [
+        vec![
+            "skills",
+            "install",
+            source.to_str().unwrap(),
+            "codex",
+            "new",
+        ],
+        vec!["skills", "copy", "codex", "kept", "zcode"],
+        vec!["skills", "uninstall", "codex", "kept"],
+        vec!["skills", "restore", "codex/restore-me"],
+        vec![
+            "skills",
+            "publish",
+            source.to_str().unwrap(),
+            "--name",
+            "new",
+            "--to",
+            "codex",
+        ],
+        vec!["skills", "refresh", "owned", "--force"],
+        vec!["skills", "unproject", "owned", "--from", "codex", "--force"],
+        vec!["skills", "unpublish", "owned", "--with-projections"],
+    ] {
+        let output = run(&args);
+        assert_code(&output, 1);
+        assert!(String::from_utf8_lossy(&output.stderr).contains("SKILLS_PROTECTED"));
+    }
+    assert_eq!(fs::read(&registry).unwrap(), receipt);
+    assert_eq!(fs::read(kept.join("SKILL.md")).unwrap(), before);
+    assert_eq!(fs::read_dir(&shared).unwrap().count(), 1);
+    assert!(env
+        .home
+        .path()
+        .join(".codex/skills/owned/SKILL.md")
+        .is_file());
+    assert_ok(&run(&[
+        "skills",
+        "install",
+        source.to_str().unwrap(),
+        "zcode",
+        "ordinary",
+    ]));
 }

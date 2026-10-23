@@ -200,13 +200,14 @@ it.each(['change', null])('copy destination changes require fresh confirmation (
 
 it.each(['name', 'root'])('copy source %s changes require fresh confirmation', async field => {
   const view = inventory();
+  view.roots[0]!.entries.push(entry('second-local', 'directory'));
   view.roots[1]!.exists = true;
   view.roots[1]!.entries = [entry('local-skill', 'directory')];
   vi.mocked(api.skillsInventory).mockResolvedValue(view);
   click('inventory-skills'); await ready();
   chooseCopy(1);
   confirm('confirm-skills-copy');
-  chooseCopy(field === 'name' ? 2 : 3);
+  chooseCopy(field === 'name' ? 3 : 4);
   expect(get<HTMLInputElement>('confirm-skills-copy').checked).toBe(false);
   expect(get<HTMLButtonElement>('copy-skill').disabled).toBe(true);
   click('copy-skill'); await ready();
@@ -214,7 +215,7 @@ it.each(['name', 'root'])('copy source %s changes require fresh confirmation', a
   confirm('confirm-skills-copy');
   click('copy-skill'); await ready();
   expect(api.skillsCopy).toHaveBeenCalledExactlyOnceWith(field === 'name' ? 'claude-code' : 'zcode',
-    field === 'name' ? 'projected-skill' : 'local-skill', 'claude-code', true);
+    field === 'name' ? 'second-local' : 'local-skill', 'claude-code', true);
 });
 
 it('inventory refresh clears both confirmations even if root IDs are unchanged', async () => {
@@ -237,9 +238,36 @@ it('inventory refresh clears both confirmations even if root IDs are unchanged',
 it('destructive dialog stays bound to its original target when copy inputs change', async () => {
   click('inventory-skills'); await ready();
   [...get('skills-roots').querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === '卸载')!.click();
-  chooseCopy(2);
+  chooseCopy(1);
   change('copy-target-root', 'zcode');
   get('dialog-confirm').click(); await ready();
   expect(api.skillsUninstall).toHaveBeenCalledExactlyOnceWith('claude-code', 'local-skill', true);
   expect(api.skillsCopy).not.toHaveBeenCalled();
+});
+
+it('read-only copy actions remain disabled after busy refresh and navigation', async () => {
+  const view = inventory();
+  view.roots[0]!.entries.push(entry('foreign-link', 'symlink', { linkTarget: '/TEST_ONLY/foreign' }),
+    entry('plain-file', 'other'), entry('projected-copy', 'lkm_projected'));
+  vi.mocked(api.skillsInventory).mockResolvedValue(view);
+  click('inventory-skills'); await ready();
+  const buttons = () => [...get('skills-roots').querySelectorAll<HTMLButtonElement>('button')].filter(b => b.textContent === '复制到…');
+  const expectCapabilities = () => expect(buttons().map(b => b.disabled)).toEqual([true, false, true, true, true, false]);
+  expectCapabilities();
+  expect(get('skills-roots').textContent).toContain('链接投影不支持复制');
+  for (const index of [0, 2, 3, 4]) buttons()[index]!.click();
+  expect(get('copy-source-label').textContent).toContain('尚未选择');
+  expect(api.skillsCopy).not.toHaveBeenCalled();
+  let finish!: (value: string | null) => void;
+  vi.mocked(api.pickDirectory).mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+  click('pick-skills-source');
+  expect(buttons().every(b => b.disabled)).toBe(true);
+  finish(null); await ready();
+  expectCapabilities();
+  root.querySelector<HTMLButtonElement>('[data-panel="keys"]')!.click(); open();
+  expectCapabilities();
+  buttons()[5]!.click();
+  change('copy-target-root', 'zcode'); confirm('confirm-skills-copy');
+  click('copy-skill'); await ready();
+  expect(api.skillsCopy).toHaveBeenCalledExactlyOnceWith('claude-code', 'projected-copy', 'zcode', true);
 });

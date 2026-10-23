@@ -524,3 +524,67 @@ fn old_oversized_trash_handles_remain_visible_and_purgeable() {
     f.service.purge(&inventory.trash[0].id).unwrap();
     assert!(f.service.inventory().unwrap().trash.is_empty());
 }
+
+#[test]
+fn shared_agent_skills_are_hidden_and_unchanged_through_root_and_ancestor_links() {
+    for ancestor in [false, true] {
+        let f = fixture();
+        let source = write_skill(f.sources.path(), "source", FRONT);
+        f.service.install(&source, "zcode", "restore-me").unwrap();
+        let trash = f.service.uninstall("zcode", "restore-me").unwrap();
+        let tool_root = f.home.path().join(".zcode/skills");
+        fs::remove_dir(&tool_root).unwrap();
+        let shared = f.home.path().join(".agents/skills");
+        let kept = write_skill(&shared, "kept", FRONT);
+        let before = fs::read(kept.join("SKILL.md")).unwrap();
+        if ancestor {
+            fs::remove_dir(f.home.path().join(".zcode")).unwrap();
+            symlink(f.home.path().join(".agents"), f.home.path().join(".zcode")).unwrap();
+        } else {
+            symlink(&shared, &tool_root).unwrap();
+        }
+        f.service.install(&source, "copilot", "ordinary").unwrap();
+        let inventory = f.service.inventory().unwrap();
+        assert!(inventory.roots.iter().all(|r| r.id != "zcode"));
+        assert_eq!(find(&inventory, "copilot", "ordinary").kind, "directory");
+        for result in [
+            f.service.install(&source, "zcode", "new"),
+            f.service.copy_to("copilot", "ordinary", "zcode"),
+            f.service.copy_to("zcode", "kept", "copilot"),
+            f.service.uninstall("zcode", "kept"),
+            f.service.restore(&trash),
+            f.service.install(&kept, "copilot", "adopt-shared"),
+        ] {
+            assert_eq!(result.unwrap_err().code, "SKILLS_PROTECTED");
+        }
+        assert_eq!(fs::read(kept.join("SKILL.md")).unwrap(), before);
+        assert_eq!(fs::read_dir(&shared).unwrap().count(), 1);
+        assert_eq!(f.service.inventory().unwrap().trash.len(), 1);
+    }
+}
+
+#[test]
+fn entry_links_into_shared_agent_skills_are_not_read_or_offered() {
+    let f = fixture();
+    let kept = write_skill(&f.home.path().join(".agents/skills"), "kept", FRONT);
+    let root = f.home.path().join(".zcode/skills");
+    fs::create_dir_all(&root).unwrap();
+    symlink(&kept, root.join("shared-alias")).unwrap();
+    let inventory = f.service.inventory().unwrap();
+    assert!(inventory
+        .roots
+        .iter()
+        .find(|r| r.id == "zcode")
+        .unwrap()
+        .entries
+        .is_empty());
+    assert_eq!(
+        f.service
+            .uninstall("zcode", "shared-alias")
+            .unwrap_err()
+            .code,
+        "SKILLS_PROTECTED"
+    );
+    assert!(root.join("shared-alias").is_symlink());
+    assert!(kept.join("SKILL.md").is_file());
+}

@@ -1,10 +1,10 @@
-本地 Codex/GLM 与 Linux 扩展见 [本地实现与验证记录](CODEX_GLM_LINUX.md)。以下迁移说明描述 Rust PR1 的 Windows 兼容基线及其既有验证。
+本地 Codex/GLM 与 Linux 扩展见 [本地实现与验证记录](CODEX_GLM_LINUX.md)。以下说明保留 Windows V1 格式契约与历史互通边界；当前验证入口见第 2、5 节。
 
 # Rust/Tauri 迁移、互通与验证边界
 
 本说明描述 Rust/Tauri 的设计与有条件兼容边界。重建前的 C# 源码、开发分支和验证证据保留在私有历史档案；当前源码树不包含旧实现或旧 Git 历史。当前版本的测试结果应按本次提交重新核实。
 
-实现完成、代码检查、测试通过和实际 Windows GUI 可用是不同结论。此文描述格式契约、可执行测试及操作步骤，不替代所用精确提交的 CI 结果。原 `验证报告.md`、旧截图和原 57 项测试的结果仅证明对应 C# 基线。
+实现完成、代码检查、测试通过和实际 Windows GUI 可用是不同结论。此文描述格式契约与验证边界，不替代所用精确提交的 CI 结果。私有档案中的旧截图和 C# 测试结果只覆盖历史基线；当前 [验证入口](验证报告.md) 不承接历史通过声明。
 
 ## 1. 数据格式契约
 
@@ -49,32 +49,22 @@
 - vault 与模板元数据是两个文件，不能声称是跨文件原子事务。写入顺序和漂移校验用于失败关闭；异常后应检查提示，重新保存/确认目标，不能删除旁存文件来当作修复步骤。
 - 备份或保留迁移前存储时同时保留 `vault.dpapi`、`backups` 和存在的 `templates.dpapi` / `templates.required`。不要公开上传这些文件，也不要将它们当作跨用户的便携备份。
 
-## 2. 真正可执行的 C# ↔ Rust 测试
+## 2. 当前测试与历史互通边界
 
-运行：
+当前源码树提供 Rust 核心、CLI 和桌面服务的合成测试：
 
-```powershell
-.\scripts\Test-RustInterop.ps1
+```bash
+cargo test --locked -p atm-core -p atm-cli -p atm --no-default-features --all-targets
 ```
 
-要求 Windows、Rust 工具链和 .NET 10 SDK，两个进程以同一用户运行。脚本构建 `tests/LocalKeyManager.Interop/LocalKeyManager.Interop.csproj`，该项目引用**原 C# Core 项目**；不复制一份格式解码器来替代生产 API，也不改变原测试项目。然后设置本次进程的 fixture DLL 路径并运行 `crates/atm-core/tests/interop.rs`。脚本退出时恢复原环境变量。
+平台相关测试只在适用系统执行；前端和原生 GUI 入口见 [README](../README.md) 与
+[验证入口](验证报告.md)。普通测试使用假密钥及临时目录，不读取用户凭据或现有配置。
 
-测试在 `%TEMP%` 下新建 `lkm-interop-*` 目录，所有密钥以 `FAKE_` 开头；不会读取默认存储、枚举现有应用配置或请求用户输入真实 key。测试所用少量明文 `.bin` 文件只是合成配置的期望字节，位于同一个临时目录，绝非真实密钥导出。
-
-测试链路：
-
-1. C# `VaultRepository` 写入 V1 vault，`BatchUpdater` 对 UTF-16 LE/BOM/CRLF 合成配置应用两个字段并生成加密备份。
-2. Rust `Vault` 读取该 vault，核对字段、布尔选项、ID、Unicode 名称、时间戳和遮罩视图；Rust `BatchUpdater` 读取 C# 备份并完整恢复原字节。
-3. Rust 用保留的 C# 假密钥重新应用原目标，并修改名称/映射。C# 再次读取并检查 Rust 保存的 vault 和实际更新内容。
-4. Rust 从空存储写入自己的 V1 vault，对 UTF-8 BOM/CRLF 合成配置应用并生成备份。
-5. C# 读取 Rust vault 与备份，经生产回滚 API 恢复完整原字节，生成新的 C# 回滚备份，再做保留密钥的元数据编辑及无引用假密钥的新增/删除。
-6. Rust 重开经 C# 编辑的 vault，确认原密钥 ID、target ID 和假密钥仍可互读，再消费 C# 回滚备份，恢复 Rust 的预计写入字节。
-
-双方检查解密后 PascalCase 字段、V1 版本、Base64 `OriginalBytes`、完整原文及前后 SHA-256，并拒绝故意篡改的对端 DPAPI 密文。也检查密文不直接包含合成明文，跨进程输出及公开 snapshot 不包含假密钥。后者是针对这些合成样本的回归断言，不是对任意明文泄漏的形式化证明。
-
-该测试在普通 `cargo test -p atm-core` 中**明确 ignored**，因为必须先构建 C# peer。在非 Windows 平台不编译 DPAPI 测试主体；零项跨语言测试不能算互通通过。PowerShell 入口先拒绝非 Windows，Windows CI 必须单独调用该脚本。缺少 DLL、.NET、编译失败、子进程失败或字节断言不符都会失败，不允许跳过后报告成功。
-
-测试通过只证明当前版本、当前 Windows 用户的合成 V1 往返，不证明所有历史损坏文件、其他用户、其他机器、第三方改写载荷或未来版本互通。
+早期 C# ↔ Rust 双向互通脚本、C# fixture 项目和 Rust interop 测试已随旧实现归档，
+不在当前源码树或 CI 中。不能将当前 Rust 测试通过解释为旧 C# 与当前版本的互通验证。
+上文的 V1 字段、DPAPI entropy、Base64 原字节和回滚格式仍是保留的兼容契约。
+如需恢复旧版迁移或回退支持，应先取得对应历史实现，在同一 Windows 测试用户下以
+隔离假数据重新验证双向读写、备份回滚及损坏密文拒绝；本仓库当前不提供该验收入口。
 
 ## 3. 精确字节补丁的范围
 
@@ -114,7 +104,7 @@ Rust 保留与基线相同的核心目标：只改用户选中的现有 JSON/JSO
 
 ## 5. Windows 验证与安全试用
 
-先安装/准备开发工具，而不是让测试脚本悄悄安装：Rust stable 的 Windows MSVC 工具链、Visual Studio C++ Build Tools/Windows SDK、Node 22、.NET 10 SDK、WebView2 运行时。使用仓库锁文件还原依赖；npm/Cargo 还原可以联网，运行中的配置/schema 处理不联网。原 C# 的 `NuGet.Config` 清空外部包源。
+先安装/准备开发工具，而不是让测试脚本悄悄安装：Rust stable 的 Windows MSVC 工具链、Visual Studio C++ Build Tools/Windows SDK、Node 22、WebView2 运行时。使用仓库锁文件还原依赖；npm/Cargo 还原可以联网，运行中的配置/schema 处理不联网。当前 Rust 构建不依赖旧 C# 项目或 .NET SDK。
 
 ```powershell
 npm ci
@@ -122,19 +112,21 @@ npm run check
 npm test
 npm run build
 cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test -p atm-core
-.\scripts\Test-RustInterop.ps1
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo test --locked -p atm-core -p atm-cli --all-targets
+cargo test --locked -p atm
 npm run tauri:build
 .\scripts\Test-TauriGui.ps1
-.\target\release\atm.exe --demo
+.\target\release\atm-desktop.exe --demo
 ```
 
 `--demo` 必须保持隔离假数据模式；不带此参数才使用默认真实存储。GUI 冒烟使用独立的进程级 `LOCALAPPDATA`，验证 Windows 窗口、实际渲染控件和小窗口尺寸，并产生合成截图。它不等于完整人工可用性测试，也不覆盖所有文件选择器、可访问性、DPI、显示器和操作系统组合。前端 DOM 测试不能代替 WebView2 集成测试。
 
 在缺少 Windows 环境时，可运行支持的平台无关 Rust/前端检查，但 DPAPI、文件锁、替换、跨语言互通和 GUI 必须标为未执行。不能因为 Linux 的 `cargo test` 通过而宣布 Windows 可用。
 
-## 6. 同用户迁移与回退步骤
+## 6. 历史同用户迁移与回退条件
+
+以下是保留的历史流程，当前仓库缺少第 2 节所述的互通验收入口，不能直接据此宣称迁移或回退可用。
 
 1. 核对要使用的精确提交，要求 C# 基线测试、Rust/前端检查、Windows 核心测试、双向互通、Tauri 构建和隔离 GUI 冒烟均有对应结果。先运行 `--demo`，仅使用假数据检查交互。
 2. 关闭所有管理器窗口，保留原 C# 发布包。由用户自行保留本机存储目录中的加密文件及备份；不要解密、导出、上传或拿真实配置当测试夹具。

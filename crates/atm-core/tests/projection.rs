@@ -644,3 +644,42 @@ fn forced_refresh_preserves_old_copy_when_new_source_contains_a_link() {
     );
     assert_copy_refresh_preserved(&f, &target, &registry, &old, &receipt);
 }
+
+#[cfg(unix)]
+#[test]
+fn publishing_and_projecting_cannot_enter_an_aliased_shared_agent_root() {
+    let f = fixture();
+    let shared = f.home.path().join(".agents/skills");
+    let kept = write_skill(&shared, "kept");
+    let source = write_skill(f.sources.path(), "source");
+    fs::create_dir_all(f.home.path().join(".zcode")).unwrap();
+    symlink(&shared, zcode_root(&f)).unwrap();
+    assert_eq!(
+        f.registry
+            .publish(&source, "new", &["zcode".into()])
+            .unwrap_err()
+            .code,
+        "SKILLS_PROTECTED"
+    );
+    assert!(!f.registry.sources_root().join("new").exists());
+    f.registry
+        .publish(&source, "ordinary", &["copilot".into()])
+        .unwrap();
+    assert_eq!(
+        f.registry.project("ordinary", "zcode").unwrap_err().code,
+        "SKILLS_PROTECTED"
+    );
+    assert_eq!(
+        f.registry
+            .publish(&kept, "adopt-shared", &["copilot".into()])
+            .unwrap_err()
+            .code,
+        "SKILLS_PROTECTED"
+    );
+    assert_eq!(fs::read_dir(&shared).unwrap().count(), 1);
+    assert_eq!(
+        fs::read(kept.join("assets/note.txt")).unwrap(),
+        b"TEST_ONLY"
+    );
+    assert_eq!(f.registry.list().unwrap()[0].projections.len(), 1);
+}
