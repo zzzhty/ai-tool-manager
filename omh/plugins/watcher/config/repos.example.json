@@ -1,0 +1,37 @@
+{
+  "repos": [
+    {
+      "name": "oh-my-harness",
+      "path": "${OH_MY_HARNESS_ROOT}",
+      "profile": "current-authority",
+      "docs": [
+        "README.md",
+        "AGENTS.md",
+        "CONTEXT.md",
+        "docs/adr",
+        "plugins/watcher/README.md",
+        "plugins/watcher/.codex-plugin/plugin.json",
+        "plugins/watcher/.codex-plugin/skill-watcher.json",
+        "plugins/watcher/skills",
+        "plugins/workflow/README.md",
+        "plugins/workflow/.codex-plugin/plugin.json",
+        "plugins/workflow/skills"
+      ],
+      "authority_paths": [
+        "README.md",
+        "AGENTS.md",
+        "CONTEXT.md",
+        "docs/adr",
+        "plugins/watcher/README.md",
+        "plugins/workflow/README.md"
+      ],
+      "watch_terms": [],
+      "link_validation": {
+        "mode": "markdown-relative"
+      },
+      "finding_policy": "actionable",
+      "check_change_alignment": true,
+      "commit_threshold": 5
+    }
+  ]
+}

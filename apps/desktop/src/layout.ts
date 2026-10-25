@@ -13,7 +13,7 @@ export const layout = `
       <button type="button" data-panel="templates"><span aria-hidden="true">03</span> 结构模板 <span id="template-count" class="count">0</span></button>
       <button type="button" data-panel="backups"><span aria-hidden="true">04</span> 加密备份与回滚</button>
       <button type="button" data-panel="usage"><span aria-hidden="true">05</span> 套餐与额度</button>
-      <button type="button" data-panel="omh"><span aria-hidden="true">06</span> OMH 管理器状态</button>
+      <button type="button" data-panel="omh"><span aria-hidden="true">06</span> 内置技能分发</button>
       <button type="button" data-panel="skills"><span aria-hidden="true">07</span> 本地技能管理</button>
     </nav>
     <div class="sidebar-note"><strong>先预览，再应用</strong><p>仅处理你选择的文件与精确字段。不自动扫描配置或寻找密钥。</p></div>
@@ -106,11 +106,11 @@ export const layout = `
       <div class="info-block"><strong>如何读额度</strong><p>未知值保持未知。百分比代表该来源报告的窗口用量；不换算固定 token 或请求次数。GLM 周期包含兼容解释，未知周期会明确标注。工具额度独立显示。网络失败时旧快照标为过期快照，认证失败时隐藏旧额度。</p></div>
     </section>
     <section id="panel-omh" class="panel" aria-labelledby="omh-heading" hidden>
-      <div class="section-heading"><div><p class="eyebrow">06 / OMH</p><h2 id="omh-heading">Oh My Harness 状态</h2><p>独立安装的 harness 技能分发器。读取记录态快照，按需调用独立 OMH CLI；不轮询。</p></div><button id="query-omh" class="button secondary" type="button">查询 OMH 状态</button></div>
+      <div class="section-heading"><div><p class="eyebrow">06 / HARNESS</p><h2 id="omh-heading">内置技能分发状态</h2><p>ATM 内置的 harness 技能分发引擎（oh-my-harness）。读取记录态快照，按需调用内置引擎；不轮询。</p></div><button id="query-omh" class="button secondary" type="button">查询 OMH 状态</button></div>
       <div id="omh-status-result" class="item-list" aria-live="polite"><p class="empty-state">未知 · 尚未查询。</p></div>
       <div class="card"><h3>OMH 诊断</h3><p>按需校验当前安装分发内容与运行环境；doctor 将警告也视为失败。诊断可能启动客户端子进程，其行为由客户端决定，不保证离线。</p><button id="omh-check" type="button" class="button secondary" disabled>校验安装（check）</button> <button id="omh-doctor" type="button" class="button secondary" disabled>严格校验（doctor）</button><p id="omh-diagnostic-result" aria-live="polite">尚未运行诊断。</p></div>
       <div class="card"><h3>OMH 生命周期</h3><p id="omh-capability-note" class="help">先查询状态与 CLI 能力。旧版本或不支持的操作保持禁用。</p><label>操作<select id="omh-operation"><option value="install">安装</option><option value="refresh">刷新</option><option value="remove">移除</option><option value="update">更新</option><option value="repair">修复所选分发（仅现有管理器）</option></select></label><fieldset id="omh-targets"><legend>明确选择目标 harness</legend></fieldset><button id="omh-preview" type="button" class="button secondary" disabled>预览并确认操作</button></div>
-      <div class="info-block"><strong>独立 CLI 的边界</strong><p>ATM 不直接改写 OMH 状态、收据或链接。能力支持的操作需选择目标并预览确认，再交由独立 OMH CLI 执行。需要替换现有指令文件的操作会停止并要求在终端确认，不会自动回答 yes。修复仅使用现有健康运行时和检出，不能恢复事务、重新安装运行时或改 PATH。更新仅在 CLI 能力支持且完成目标选择与确认后可用；恢复等未支持的操作请用终端 omh 完成。状态仅为记录态快照，不代表实时健康。</p></div>
+      <div class="info-block"><strong>内置引擎的边界</strong><p>ATM 不直接改写引擎状态、收据或链接。能力支持的操作需选择目标并预览确认，再交由内置引擎执行。需要替换现有指令文件的操作会停止并要求在终端确认，不会自动回答 yes。修复仅使用现有健康运行时和分发，不能恢复事务、重新安装运行时或改 PATH。更新仅在引擎能力支持且完成目标选择与确认后可用；恢复等未支持的操作请在终端用 atm harness 完成。状态仅为记录态快照，不代表实时健康。</p></div>
     </section>
     <section id="panel-skills" class="panel" aria-labelledby="skills-heading" hidden>
       <div class="section-heading"><div><p class="eyebrow">07 / SKILLS</p><h2 id="skills-heading">本地技能管理</h2><p>盘点各工具的技能目录；按需操作，不轮询、不联网。</p></div><button id="inventory-skills" class="button secondary" type="button">盘点技能</button></div>
@@ -137,7 +137,7 @@ export const layout = `
       <div id="skills-roots" class="item-list" aria-live="polite"><p class="empty-state">未知 · 尚未盘点。</p></div>
       <div class="section-heading"><div><p class="eyebrow">TRASH</p><h3>已卸载（保管区）</h3><p>卸载的目录技能保存在本管理器数据目录，可恢复或彻底删除。</p></div></div>
       <div id="skills-trash" class="item-list" aria-live="polite"><p class="empty-state">尚未盘点。</p></div>
-      <div class="info-block"><strong>技能管理的边界</strong><p>由 oh-my-harness 管理的链接在此只读；变更请用终端 omh 命令（本工具不会改动其链接）。安装到某根的同名技能若与日后 omh 的投影冲突，由 omh 侧的既有同名保护拒绝，双方内容都不受影响。安装不访问网络，也不接受压缩包；目标根不存在时会自动创建。</p></div>
+      <div class="info-block"><strong>技能管理的边界</strong><p>由内置引擎（oh-my-harness）管理的链接在此只读；变更请在终端用 atm harness 命令（本工具不会改动其链接）。安装到某根的同名技能若与日后引擎的投影冲突，由引擎侧的既有同名保护拒绝，双方内容都不受影响。安装不访问网络，也不接受压缩包；目标根不存在时会自动创建。</p></div>
     </section>
     <section id="preview-section" class="card preview-section" aria-labelledby="preview-heading" hidden tabindex="-1">
       <div class="card-heading"><div><p class="eyebrow">REVIEW / 一次性预览</p><h2 id="preview-heading">遮罩预览</h2></div><span class="pill">所有值完全遮罩</span></div>

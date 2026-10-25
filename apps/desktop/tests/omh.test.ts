@@ -58,7 +58,8 @@ it('renders the recorded snapshot with unknown values preserved and revision sho
 it('a missing installation renders an explicit not-installed state instead of an error', async () => {
   vi.mocked(api.omhStatus).mockRejectedValue({ code: 'OMH_NOT_INSTALLED' });
   await query();
-  expect(get('omh-status-result').textContent).toContain('未检测到 oh-my-harness 安装');
+  expect(get('omh-status-result').textContent).toContain('未检测到 harness 引擎安装');
+  expect(get('omh-status-result').textContent).toContain('atm harness bootstrap');
   expect(root.textContent).not.toContain('/TEST_ONLY');
 });
 

@@ -1,7 +1,7 @@
 import type { DesktopApi, SkillEntryView, SkillsInventoryView } from './types';
 
 const kindLabels: Record<string, string> = {
-  omh_managed: 'OMH 管理', lkm_projected: 'ATM 投影', symlink: '链接', directory: '本地目录', other: '普通文件',
+  omh_managed: '内置分发管理', lkm_projected: 'ATM 投影', symlink: '链接', directory: '本地目录', other: '普通文件',
 };
 const canCopy = (entry: SkillEntryView): boolean =>
   entry.kind === 'directory' || (entry.kind === 'lkm_projected' && entry.linkTarget === null);
@@ -189,7 +189,7 @@ export class SkillsPanel {
     this.notice('已选择复制源，请在上方选择目标根并确认。');
   }
   private uninstall(rootId: string, entry: SkillEntryView): void {
-    if (entry.kind === 'omh_managed') { this.notice('该技能由 oh-my-harness 管理；请在终端用 omh 命令变更。'); return; }
+    if (entry.kind === 'omh_managed') { this.notice('该技能由内置引擎（oh-my-harness）管理；请在终端用 atm harness 命令变更。'); return; }
     if (entry.kind === 'lkm_projected') { this.notice('该技能是本管理器的投影；请在终端用 atm skills unproject 撤除。'); return; }
     if (entry.kind === 'symlink') { this.notice('外部链接仅供查看，ATM 不会修改或移除。'); return; }
     if (entry.kind === 'other') { this.notice('普通文件不是技能目录，请手动处理。'); return; }
@@ -229,7 +229,7 @@ export class SkillsPanel {
     if (entry.kind === 'directory') {
       buttons.push(button('卸载', () => this.uninstall(rootId, entry), 'text-button danger-text'));
     }
-    if (locked) buttons.push(node('span', entry.kind === 'omh_managed' ? '由 OMH 管理' : '外部链接 · 只读', 'pill'));
+    if (locked) buttons.push(node('span', entry.kind === 'omh_managed' ? '内置分发 · 只读' : '外部链接 · 只读', 'pill'));
     if (projected) {
       buttons.push(node('span', '由 ATM 投影管理', 'pill'));
       if (!canCopy(entry)) buttons.push(node('span', '链接投影不支持复制；追加投影请用 atm skills project。', 'help'));

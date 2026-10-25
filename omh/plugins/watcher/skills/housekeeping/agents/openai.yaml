@@ -1,0 +1,4 @@
+interface:
+  display_name: "Housekeeping"
+  short_description: "Remove bounded disposable workspace artifacts"
+  default_prompt: "Use $housekeeping to inventory and remove only disposable artifacts in this bounded workspace scope."

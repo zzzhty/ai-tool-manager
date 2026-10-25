@@ -1,0 +1,6 @@
+interface:
+  display_name: "Scope Discipline"
+  short_description: "Reject unsupported scope and validation expansion"
+  default_prompt: "Use $scope-discipline to keep this task within requested scope, necessary consequences, and proportionate validation."
+policy:
+  allow_implicit_invocation: false

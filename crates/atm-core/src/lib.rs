@@ -10,6 +10,7 @@ pub mod macos;
 mod macos_keychain;
 mod model;
 pub mod omh;
+pub mod omh_embed;
 pub mod omh_machine;
 pub mod projection;
 pub mod skills;

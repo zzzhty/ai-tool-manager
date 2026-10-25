@@ -53,7 +53,7 @@ it('inventory renders roots, source badges, omh lock and descriptions', async ()
   const output = get('skills-roots');
   expect(output.textContent).toContain('Claude Code · claude-code');
   expect(output.textContent).toContain('/TEST_ONLY/home/.claude/skills');
-  expect(output.textContent).toContain('由 OMH 管理');
+  expect(output.textContent).toContain('内置分发 · 只读');
   expect(output.textContent).toContain('ATM 投影');
   expect(output.textContent).toContain('由 ATM 投影管理');
   expect(output.textContent).toContain('A TEST_ONLY local skill.');

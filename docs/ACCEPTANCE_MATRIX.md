@@ -28,15 +28,19 @@
 | macOS 安全存储 | Keychain 专用条目 + AES-GCM；[macOS 说明](MACOS.md)、[macos.rs 测试](../crates/atm-core/tests/macos.rs) | 部分共享逻辑/模拟后端可在 Linux 测试；不构成 macOS 证据 | macOS 原生用例、真实 Keychain、GUI 未运行；CI 目标为 arm64，Intel/universal 未验证 |
 | 批量更新、JSONC、模板与回滚 | [batch.rs](../crates/atm-core/src/batch.rs)、[JSONC parity](../crates/atm-core/tests/parity.rs)、[模板测试](../crates/atm-core/tests/templates.rs)：逐文件原子替换、完整加密备份、精确源字节和本地 schema 校验 | 共享核心与 Linux 回归通过，含 T01 新增冲突/确认/备份边界和 P01 无转义解析、Unicode/控制字节回归 | Windows/macOS 专属文件语义未验证；合成性能收益不等于 GUI 延迟收益 |
 | Codex / GLM 额度 | [usage 测试](../crates/atm-core/tests/usage.rs)、[Codex 子进程测试](../crates/atm-core/tests/codex_process.rs)；未知值保留未知，固定端点/argv，主动查询 | 合成协议、错误和进程边界测试通过 | 未查询真实账户或额度端点 |
-| OMH 记录与机器协议 | [omh.rs](../crates/atm-core/src/omh.rs)、[omh_machine.rs](../crates/atm-core/src/omh_machine.rs)、[前端测试](../apps/desktop/tests/omh.test.ts) | 记录解析、合成协议/进程边界通过；已覆盖 operation.command、旧 kind/operation 字段兼容与 degraded 显示 | 未运行真实 OMH 安装；未将记录查询迁移为 machine status，也未改变命令 allowlist |
+| 内置引擎记录与机器协议 | [omh.rs](../crates/atm-core/src/omh.rs)、[omh_machine.rs](../crates/atm-core/src/omh_machine.rs)、[前端测试](../apps/desktop/tests/omh.test.ts) | 记录解析、合成协议/进程边界通过；已覆盖 operation.command、旧 kind/operation 字段兼容与 degraded 显示 | 未运行真实引擎安装（隔离 bootstrap E2E 需单独执行）；未将记录查询迁移为 machine status，也未改变命令 allowlist |
+| 内嵌引擎物化与收编 | [atm_embed.py](../omh/scripts/atm_embed.py)、[omh_embed.rs](../crates/atm-core/src/omh_embed.rs)、[test_atm_embed.py](../omh/tests/test_atm_embed.py)、[omh_embed 测试](../crates/atm-core/tests/omh_embed.rs) | 物化/幂等 sync/旧 git 收编/拒绝条件/无 git 运行/漂移拒绝/argv 限幅通过（Python + Rust 双侧） | 真实 manager home 迁移需单独授权；Windows 仅经 CI 测试矩阵覆盖 |
 | 技能、回收站、投影与 CLI | [skills 测试](../crates/atm-core/tests/skills.rs)、[projection 测试](../crates/atm-core/tests/projection.rs)、[CLI 测试](../crates/atm-cli/tests/cli.rs) | Linux 临时目录中的复制、符号链接投影、所有权拒绝、回收恢复和 CLI 通过，含 T02 | macOS 虽共用 POSIX 实现，原生未测；Windows 为普通复制投影，foreign-slot 断言已修正但未在 Windows 运行；真实技能根未访问 |
 | 前端 | [组件测试](../apps/desktop/tests)、TypeScript 与 Vite | 88 项通过，类型检查与前端构建通过 | 前端测试/构建不能代替 Tauri 原生启动和 GUI 验证 |
 
-OMH 三平台均执行管理目录内的 venv Python 加 `repo/scripts/omh.py` 绝对路径：
-Windows 为 `venv/Scripts/python.exe`，Linux/macOS 为 `venv/bin/python`，不经 shell shim。
-记录查询仍使用 `status --json`；能力/诊断/变更走 machine v1。静态操作范围包含
-install / refresh / remove / update / repair，实际可用性仍取决于当前 CLI capabilities、
-明确目标和确认要求；recover 不在支持范围。详情见 [README](../README.md#oh-my-harness-独立-cli-集成)。
+内置引擎（物化于 manager home 的 `<home>/repo`）在三平台均以管理目录内的 venv Python 加
+`repo/scripts/omh.py` 绝对路径执行：Windows 为 `venv/Scripts/python.exe`，Linux/macOS 为
+`venv/bin/python`，不经 shell shim。记录查询仍使用 `status --json`；能力/诊断/变更走
+machine v1。CLI 表面为动词优先语法（`atm install/update/uninstall/check/repair skills
+--harness …`、`atm install/uninstall/check hooks --harness codex`、维护组 `atm harness
+bootstrap|sync|status` 与 `atm harness --` 逃生口）；实际可用性仍取决于当前引擎
+capabilities、明确目标和确认要求；recover/update 在嵌入模式明确拒绝。详情见
+[README](../README.md#内置技能分发引擎harness)。
 
 ### 原生 GUI 入口与 PASS 的含义
 
@@ -73,7 +77,8 @@ OMH 管理目录覆盖。应用的 `from_environment()` 仍尊重这些环境配
 回归以独立子进程注入外部假目录并检查目录未变，不在并行 Rust 测试中修改全局环境。
 
 `ATM_TEST_OMH_CHECKOUT`、`LKM_OMH_LIVE=1` 和 `LKM_SKILLS_LIVE=1` 分别启用真实
-OMH checkout、真实 OMH 安装和真实技能盘点。未设置时对应三个测试提前返回并计 passed；
+引擎 checkout、真实引擎安装和真实技能盘点；`LKM_OMH_PYTHON_STRICT=1` 要求
+Python 工具依赖可用（否则 Verify-Local 的引擎套件判失败）。未设置时对应三个测试提前返回并计 passed；
 因此通过总数包含这些空返回，不能据此宣称真实对象已测。`Verify-Local.sh` 强制关闭三项；
 若直接运行 Cargo，须由调用者在测试子进程中关闭它们。真实对象验证必须单独明确选择入口。
 

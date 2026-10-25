@@ -1,0 +1,20 @@
+{
+  "name": "workflow",
+  "version": "1.1.0+codex.38883dfae1b06d1d",
+  "description": "Reusable agent workflow skills maintained from the oh-my-harness repository.",
+  "author": {
+    "name": "Max"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Workflow",
+    "shortDescription": "Use reusable workflow skills maintained in oh-my-harness.",
+    "longDescription": "Workflow packages reusable agent procedures for continuation-ready long-running goals with frozen YOLO non-stops, runtime hard stops, and milestone scope gates; SOP harnesses; prompt and strategy loops; explicit scope discipline; user-requested subagent orchestration; scoped HTML summaries and source-code walkthroughs; and other repeatable agent workflows installable from the oh-my-harness marketplace.",
+    "developerName": "Max",
+    "category": "Productivity",
+    "capabilities": [
+      "skills"
+    ],
+    "defaultPrompt": "Help me use my reusable workflow skills."
+  }
+}

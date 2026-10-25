@@ -38,7 +38,10 @@ pub struct Capabilities {
     pub operations: BTreeMap<String, Capability>,
 }
 fn error(code: &'static str) -> Error {
-    Error::new(code, "OMH 操作未完成；请核对记录态状态，必要时在终端处理。")
+    Error::new(
+        code,
+        "OMH 操作未完成；请核对记录态状态，必要时在终端使用 atm harness 命令处理。",
+    )
 }
 fn home() -> Result<PathBuf> {
     let user = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })

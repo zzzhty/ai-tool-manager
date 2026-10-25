@@ -19,13 +19,39 @@ cargo test --locked --offline -p atm-core -p atm-cli -p atm --no-default-feature
 npm run check
 npm test
 npm run build
+# Embedded harness engine suite. Byte-compilation always runs; unit tests need
+# PyYAML/jsonschema importable by the runner. Without them the suite is an
+# honest SKIPPED (never a fabricated pass); CI sets LKM_OMH_PYTHON_STRICT=1
+# to require them.
+python3 -m compileall -q omh/scripts omh/tests omh/plugins/watcher omh/plugins/workflow
+if python3 -c "import yaml, jsonschema" 2>/dev/null; then
+  PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s omh/tests -p "test_*.py"
+  PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s omh/plugins/watcher/tests -p "test_*.py"
+  PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s omh/plugins/workflow/tests -p "test_*.py"
+  (cd omh && python3 scripts/check_plugin_generations.py >/dev/null)
+elif [[ "${LKM_OMH_PYTHON_STRICT:-0}" == "1" ]]; then
+  echo "PYTHON_SUITE=FAIL: tooling dependencies missing (yaml/jsonschema) in strict mode" >&2
+  exit 1
+else
+  echo "PYTHON_SUITE=SKIPPED (tooling deps unavailable; run pip install -r omh/requirements.txt)"
+fi
 git diff --check
 python3 - <<'PY'
 import json, re, subprocess
+from pathlib import PurePosixPath
 from pathlib import Path
 files = sorted(set(subprocess.check_output(["git","-c","core.quotepath=false","ls-files","--cached","--others","--exclude-standard"],text=True).splitlines()))
-allowed = sorted(json.loads(Path("scripts/source-manifest.json").read_text()))
-if files != allowed:
+manifest = json.loads(Path("scripts/source-manifest.json").read_text())
+allowed = set(manifest["files"])
+for entry in manifest.get("directories", []):
+    prefix = entry["path"].rstrip("/") + "/"
+    excluded = set(entry.get("exclude", []))
+    matched = {f for f in files if f.startswith(prefix) and not (excluded & set(PurePosixPath(f).parts[1:]))}
+    # A directory entry that matches nothing means an ignore rule silently ate the tree.
+    if not matched:
+        raise SystemExit("Source manifest directory %s has no tracked files; check ignore rules" % entry["path"])
+    allowed |= matched
+if files != sorted(allowed):
     raise SystemExit("Source manifest does not match the project file inventory")
 pattern = re.compile(r"(?<![A-Za-z0-9])(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{24,}|-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----)")
 for relative in files:

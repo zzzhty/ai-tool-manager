@@ -66,7 +66,7 @@ export class OmhPanel {
       if (operation.selectedOptions[0]?.disabled) operation.value = Array.from(operation.options).find(option => !option.disabled)?.value ?? '';
       this.get('omh-capability-note').textContent = '已识别 machine v1。仅启用 CLI 明确支持的操作；需要交互确认的情况会停止。';
     } catch {
-      this.get('omh-capability-note').textContent = 'CLI 能力不可用或版本不支持 machine v1。生命周期操作已禁用；可在终端使用 omh。';
+      this.get('omh-capability-note').textContent = '引擎能力不可用或版本不支持 machine v1。生命周期操作已禁用；可在终端使用 atm harness。';
     }
     this.applyControls();
   }
@@ -78,9 +78,9 @@ export class OmhPanel {
         const result = await this.api.omhDiagnose(operation);
         this.get('omh-diagnostic-result').textContent = result.passed
           ? `${operation} 本次诊断通过。这是该命令本次观测的结果，不保证持续健康。`
-          : `${operation} 发现问题或未完成（退出码 ${result.exitCode}）。请在终端运行 omh ${operation} 查看详情。`;
+          : `${operation} 发现问题或未完成（退出码 ${result.exitCode}）。请在终端运行 atm harness -- ${operation} 查看详情。`;
       } catch (error) {
-        this.get('omh-diagnostic-result').textContent = `${operation} 诊断未完成，结果未知。请在终端核对。`;
+        this.get('omh-diagnostic-result').textContent = `${operation} 诊断未完成，结果未知。请在终端用 atm harness 核对。`;
         throw error;
       }
     });
@@ -90,7 +90,7 @@ export class OmhPanel {
     const harnesses = this.selected();
     if (this.busy || !this.capabilities?.operations[operation]?.supported || !harnesses.length) return;
     const revision = this.revision;
-    this.ask(`确认由独立 OMH 执行 ${operation}？目标：${harnesses.join('、')}。该操作会变更这些目标的 OMH 托管资源；不会授权任意指令文件替换。${operation === 'repair' ? '修复仅限现有管理器中的已安装分发，不授权事务恢复、重建运行时或 PATH 变更。' : ''}需要额外确认时将停止并提示终端处理。`, async () => {
+    this.ask(`确认由 ATM 内置 harness 引擎执行 ${operation}？目标：${harnesses.join('、')}。该操作会变更这些目标的引擎托管资源；不会授权任意指令文件替换。${operation === 'repair' ? '修复仅限现有管理器中的已安装分发，不授权事务恢复、重建运行时或 PATH 变更。' : ''}需要额外确认时将停止并提示终端处理。`, async () => {
       if (revision !== this.revision) return;
       try {
         await this.api.omhExecute(operation, harnesses, true);
@@ -115,8 +115,8 @@ export class OmhPanel {
         this.reset();
         const code = typeof error === 'object' && error !== null && 'code' in error ? (error as { code: unknown }).code : undefined;
         if (code === 'OMH_NOT_INSTALLED') {
-          this.get('omh-status-result').replaceChildren(node('p', '未检测到 oh-my-harness 安装。可在终端完成安装或修复后再次查询。', 'empty-state'));
-          this.notice('未检测到 oh-my-harness 安装；保持未知。');
+          this.get('omh-status-result').replaceChildren(node('p', '未检测到 harness 引擎安装。可在终端运行 atm harness bootstrap 后再次查询。', 'empty-state'));
+          this.notice('未检测到 harness 引擎安装；保持未知。');
           return;
         }
         throw error;
@@ -124,7 +124,7 @@ export class OmhPanel {
       if (revision !== this.revision) return;
       this.render(result);
       await this.loadCapabilities();
-      this.notice('oh-my-harness 状态已读取。这是记录态快照，不代表实时健康；请用 omh check 做实时校验。');
+      this.notice('harness 分发状态已读取。这是记录态快照，不代表实时健康；请用 atm check skills --harness … 做实时校验。');
     });
   }
   private render(s: OmhStatusView): void {
@@ -135,7 +135,7 @@ export class OmhPanel {
     if (s.installed) {
       head.append(node('p', '版本：' + (s.releaseVersion ?? '未知') + ' · 通道：' + (s.channel ?? '未知') + ' · 修订：' + shortRevision(s.revision)));
       if (s.repository) head.append(node('p', '仓库：' + s.repository, 'help breakable'));
-      if (s.operationKind) head.append(node('p', '存在进行中的操作记录：' + s.operationKind + '。请在终端运行 OMH status 查看详情。', 'help'));
+      if (s.operationKind) head.append(node('p', '存在进行中的操作记录：' + s.operationKind + '。请在终端运行 atm harness status 查看详情。', 'help'));
       if (s.worktreeClean === null) head.append(node('p', '工作区状态：未检查（记录态快照不做实时检查）。', 'help'));
     }
     output.append(head);

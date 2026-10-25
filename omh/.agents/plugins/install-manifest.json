@@ -1,0 +1,21 @@
+{
+  "harness": "codex",
+  "marketplace": "oh-my-harness",
+  "plugins": [
+    {
+      "name": "watcher",
+      "install": true,
+      "check": true
+    },
+    {
+      "name": "workflow",
+      "install": true,
+      "check": true
+    },
+    {
+      "name": "mattpocock-skills",
+      "install": true,
+      "check": true
+    }
+  ]
+}

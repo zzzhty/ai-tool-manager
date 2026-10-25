@@ -69,7 +69,7 @@ fn checked_file(path: &Path, code: &'static str, message: &'static str) -> Resul
     if !path.is_file() {
         return Err(Error::new(
             "OMH_NOT_INSTALLED",
-            "未检测到可用的 oh-my-harness 安装；请在终端完成安装或修复后再次查询。",
+            "未检测到可用的 harness 引擎安装；请先运行 atm harness bootstrap 后再次查询。",
         ));
     }
     Ok(path.to_path_buf())
@@ -239,7 +239,7 @@ pub fn query_with_timeout(manager_home: &Path, timeout: Duration) -> Result<OmhS
         // The interpreter vanished between the existence check and exec.
         std::io::ErrorKind::NotFound => Error::new(
             "OMH_NOT_INSTALLED",
-            "未检测到可用的 oh-my-harness 安装；请在终端完成安装或修复后再次查询。",
+            "未检测到可用的 harness 引擎安装；请先运行 atm harness bootstrap 后再次查询。",
         ),
         // A transient OS-level launch failure must not read as a missing install.
         _ => Error::new(
@@ -320,12 +320,12 @@ pub fn query_with_timeout(manager_home: &Path, timeout: Duration) -> Result<OmhS
             {
                 Err(Error::new(
                     "OMH_RUNTIME",
-                    "oh-my-harness 运行时不可用；请在本机终端运行 omh repair 后重试。",
+                    "harness 引擎运行时不可用；请在终端运行 atm harness -- repair --rebuild 后重试。",
                 ))
             }
             _ => Err(Error::new(
                 "OMH_CLI_FAILED",
-                "oh-my-harness 状态查询返回失败；请在终端运行 omh status 核对。",
+                "oh-my-harness 状态查询返回失败；请在终端运行 atm harness status 核对。",
             )),
         };
     }
@@ -334,6 +334,14 @@ pub fn query_with_timeout(manager_home: &Path, timeout: Duration) -> Result<OmhS
         "oh-my-harness 状态输出无法安全识别，已丢弃。",
     ))?;
     parse(&payload, &manager_home.to_string_lossy(), "recorded")
+}
+
+/// Resolves the manager home from the process environment without querying.
+pub fn manager_home_from_environment() -> Result<PathBuf> {
+    Ok(resolve_manager_home(
+        std::env::var_os(MANAGER_HOME_ENV).as_deref(),
+        &user_home()?,
+    ))
 }
 
 /// Resolves the manager home from the process environment and runs one query.
