@@ -91,10 +91,10 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: omh
+        working-directory: harness
     env:
       PYTHONDONTWRITEBYTECODE: '1'
-      LKM_OMH_PYTHON_STRICT: '1'
+      ATM_ENGINE_PYTHON_STRICT: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -153,10 +153,10 @@ jobs:
         run: cargo clippy --locked --workspace --all-targets --features smoke-tests -- -D warnings
       - name: Real isolated Secret Service lifecycle
         env:
-          LKM_ISOLATED_KEYRING_TEST: '1'
+          ATM_ISOLATED_KEYRING_TEST: '1'
         run: |
           set -o pipefail
-          export LKM_TEST_ROOT="$RUNNER_TEMP/lkm-keyring-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          export ATM_TEST_ROOT="$RUNNER_TEMP/lkm-keyring-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           dbus-run-session -- bash scripts/Test-LinuxKeyring.sh 2>&1 | tee artifacts/linux-ci/keyring.log
           python3 -c 'from pathlib import Path; s=Path("artifacts/linux-ci/keyring.log").read_text(); assert "SECRET_SERVICE_LIFECYCLE_PHASE=PASS (create)" in s and "SECRET_SERVICE_LIFECYCLE_PHASE=PASS (reopen)" in s and "SECRET_SERVICE_LIFECYCLE=PASS:" in s'
       - name: Build native Linux Tauri executable
@@ -298,8 +298,8 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 40
     env:
-      LKM_SKILLS_LIVE: '0'
-      LKM_OMH_LIVE: '0'
+      ATM_SKILLS_LIVE: '0'
+      ATM_ENGINE_LIVE: '0'
       PYTHONNOUSERSITE: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

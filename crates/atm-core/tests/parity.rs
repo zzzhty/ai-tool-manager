@@ -376,7 +376,7 @@ mod win {
                 .expect("entry")
                 .file_name()
                 .to_string_lossy()
-                .starts_with(".lkm-"))
+                .starts_with(".atm-"))
         );
     }
 }
@@ -631,7 +631,7 @@ mod failure_paths {
             .expect("entry")
             .file_name()
             .to_string_lossy()
-            .starts_with(".lkm-")));
+            .starts_with(".atm-")));
     }
 
     #[test]
@@ -994,7 +994,7 @@ mod failure_paths {
         let mut plan = updater.preview(&vault, &[id]);
         let result = apply(&updater, &mut plan);
         let backup = result[0].backup_path.as_ref().expect("backup");
-        let outside = dir.path().join("outside.lkmbackup");
+        let outside = dir.path().join("outside.atmbackup");
         fs::copy(backup, &outside).expect("fixture copy");
         assert_eq!(
             super::rejected(updater.preview_rollback(outside.to_str().expect("path"))).code,

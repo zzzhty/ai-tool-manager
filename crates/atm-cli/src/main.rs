@@ -4,8 +4,8 @@
 //! skill management. No polling and no secret-store access (keys never appear
 //! on this surface); only `atm harness bootstrap/sync` may fetch first-run
 //! Python dependencies, everything else stays offline.
-use atm_core::omh::{self};
-use atm_core::omh_embed;
+use atm_core::harness::{self};
+use atm_core::harness_embed;
 use atm_core::projection::{CheckItem, ProjectionRegistry};
 use atm_core::skills::SkillsService;
 use atm_core::{Error, Result};
@@ -184,11 +184,11 @@ fn has_flag(parsed: &Parsed, flag: &str) -> bool {
 }
 
 fn run_engine(operation: &str, targets: &[String], extra: &[&str]) -> Result<i32> {
-    let home = omh::manager_home_from_environment()?;
+    let home = harness::manager_home_from_environment()?;
     let mut args: Vec<String> = vec![operation.to_owned()];
     args.extend(targets.iter().cloned());
     args.extend(extra.iter().map(|value| (*value).to_owned()));
-    let (python, argv) = omh_embed::harness_invocation(&home, &args)?;
+    let (python, argv) = harness_embed::harness_invocation(&home, &args)?;
     spawn_interactive(&python, &argv)
 }
 
@@ -198,7 +198,7 @@ fn spawn_interactive(program: &Path, args: &[String]) -> Result<i32> {
     let status = Command::new(program)
         .args(args)
         .status()
-        .map_err(|_| Error::new("OMH_CLI_FAILED", "无法启动 harness 引擎子进程。"))?;
+        .map_err(|_| Error::new("HARNESS_CLI_FAILED", "无法启动 harness 引擎子进程。"))?;
     Ok(status.code().unwrap_or(1))
 }
 
@@ -258,7 +258,7 @@ fn hooks_operation(kind: &str, rest: &[String]) -> Result<i32> {
             "hooks 目前仅支持 --harness codex。",
         ));
     }
-    let home = omh::manager_home_from_environment()?;
+    let home = harness::manager_home_from_environment()?;
     let repo = home.join("repo");
     let mut args: Vec<String> = Vec::new();
     match kind {
@@ -285,7 +285,7 @@ fn hooks_operation(kind: &str, rest: &[String]) -> Result<i32> {
     }
     args.push("--repo-root".into());
     args.push(repo.to_string_lossy().into_owned());
-    let (python, argv) = omh_embed::watcher_invocation(&home, &args)?;
+    let (python, argv) = harness_embed::watcher_invocation(&home, &args)?;
     spawn_interactive(&python, &argv)
 }
 
@@ -471,24 +471,24 @@ fn dispatch_harness(rest: &[String]) -> Result<i32> {
         if rest.is_empty() || rest.iter().any(|arg| arg == "--home") {
             return Err(usage_error());
         }
-        // Raw engine passthrough: everything after `--` goes to omh.py verbatim.
+        // Raw engine passthrough: everything after `--` goes to engine.py verbatim.
         // The manager home comes from the environment to keep one --home source.
-        let home = omh::manager_home_from_environment()?;
-        let (python, argv) = omh_embed::harness_invocation(&home, rest)?;
+        let home = harness::manager_home_from_environment()?;
+        let (python, argv) = harness_embed::harness_invocation(&home, rest)?;
         return spawn_interactive(&python, &argv);
     }
     let parsed = parse(rest, &["--home", "--json"])?;
     let home = match value_of(&parsed, "--home") {
         Some(path) if Path::new(&path).is_absolute() => PathBuf::from(path),
         Some(_) => return Err(usage_error()),
-        None => omh::manager_home_from_environment()?,
+        None => harness::manager_home_from_environment()?,
     };
     match subcommand {
         "bootstrap" | "sync" => {
             if !parsed.positionals.is_empty() || has_flag(&parsed, "--json") {
                 return Err(usage_error());
             }
-            let (python, argv) = omh_embed::embed_invocation(subcommand, &home)?;
+            let (python, argv) = harness_embed::embed_invocation(subcommand, &home)?;
             spawn_interactive(&python, &argv)
         }
         "status" => {
@@ -499,7 +499,7 @@ fn dispatch_harness(rest: &[String]) -> Result<i32> {
             if has_flag(&parsed, "--json") {
                 engine_args.push("--json".into());
             }
-            let (python, argv) = omh_embed::harness_invocation(&home, &engine_args)?;
+            let (python, argv) = harness_embed::harness_invocation(&home, &engine_args)?;
             spawn_interactive(&python, &argv)
         }
         _ => Err(Error::new(
@@ -573,7 +573,7 @@ fn inventory(json: bool) -> Result<i32> {
         println!("{:<12} {} 项  {}", root.id, root.entries.len(), root.path);
         for entry in &root.entries {
             let kind = match entry.kind {
-                "omh_managed" => "内置分发管理",
+                "engine_managed" => "内置分发管理",
                 "lkm_projected" => "ATM 投影",
                 "symlink" => "链接",
                 "directory" => "目录",

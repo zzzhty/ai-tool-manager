@@ -464,7 +464,7 @@ fn inherited_default_acl_cannot_grant_new_access_on_config_replacement() {
         .unwrap()
         .file_name()
         .to_string_lossy()
-        .starts_with(".lkm-")));
+        .starts_with(".atm-")));
     eprintln!("LINUX_DEFAULT_ACL=PASS: inherited ACL exercised; no new named-user access");
 }
 

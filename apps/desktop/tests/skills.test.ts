@@ -1,4 +1,4 @@
-// TEST_ONLY mock IPC; no real harness directories or oh-my-harness are touched.
+// TEST_ONLY mock IPC; no real harness directories or atm-harness are touched.
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { DesktopApp } from '../src/app';
 import type { DesktopApi, SkillsInventoryView, SnapshotView } from '../src/types';
@@ -8,14 +8,14 @@ const entry = (name: string, kind: SkillsInventoryView['roots'][number]['entries
 const inventory = (): SkillsInventoryView => ({
   roots: [
     { id: 'claude-code', label: 'Claude Code', path: '/TEST_ONLY/home/.claude/skills', exists: true, entries: [
-      entry('managed-skill', 'omh_managed', { linkTarget: '/TEST_ONLY/home/.oh-my-harness/repo/plugins/x' }),
+      entry('managed-skill', 'engine_managed', { linkTarget: '/TEST_ONLY/home/.atm/repo/plugins/x' }),
       entry('local-skill', 'directory', { displayName: 'Local Skill', description: 'A TEST_ONLY local skill.' }),
       entry('projected-skill', 'lkm_projected', { linkTarget: '/TEST_ONLY/data/skills-sources/sources/projected-skill' }),
     ] },
     { id: 'zcode', label: 'Z Code', path: '/TEST_ONLY/home/.zcode/skills', exists: false, entries: [] },
   ],
   trash: [{ id: 'zcode/old-skill', rootId: 'zcode', name: 'old-skill', originPath: '/TEST_ONLY/home/.zcode/skills/old-skill' }],
-  managerHome: '/TEST_ONLY/home/.oh-my-harness',
+  managerHome: '/TEST_ONLY/home/.atm',
 });
 let root: HTMLElement, app: DesktopApp, api: DesktopApi;
 const get = <T extends HTMLElement = HTMLElement>(id: string) => root.querySelector<T>('#' + id)!;
@@ -32,7 +32,7 @@ beforeEach(async () => {
   api = {
     snapshot: vi.fn().mockResolvedValue(data()), cancelPreview: vi.fn(), saveKey: vi.fn(), deleteKey: vi.fn(), saveTarget: vi.fn(), deleteTarget: vi.fn(),
     preview: vi.fn(), applyPreview: vi.fn(), listBackups: vi.fn(), previewRollback: vi.fn(), inferTemplate: vi.fn(), saveTemplate: vi.fn(), deleteTemplate: vi.fn(), pickFile: vi.fn(),
-    initializeStorage: vi.fn(), configureCodexCli: vi.fn(), disconnectCodexCli: vi.fn(), queryCodexUsage: vi.fn(), queryGlmUsage: vi.fn(), omhDiagnose: vi.fn(), omhCapabilities: vi.fn(), omhExecute: vi.fn(), omhStatus: vi.fn(),
+    initializeStorage: vi.fn(), configureCodexCli: vi.fn(), disconnectCodexCli: vi.fn(), queryCodexUsage: vi.fn(), queryGlmUsage: vi.fn(), harnessDiagnose: vi.fn(), harnessCapabilities: vi.fn(), harnessExecute: vi.fn(), harnessStatus: vi.fn(),
     skillsInventory: vi.fn().mockResolvedValue(inventory()), skillsInstall: vi.fn().mockResolvedValue('claude-code/new-skill'),
     skillsUninstall: vi.fn().mockResolvedValue('claude-code/local-skill'), skillsRestore: vi.fn().mockResolvedValue('zcode/old-skill'),
     skillsPurge: vi.fn().mockResolvedValue(undefined), skillsCopy: vi.fn().mockResolvedValue('copilot/local-skill'), pickDirectory: vi.fn().mockResolvedValue('/TEST_ONLY/sources/new-skill'),
@@ -47,7 +47,7 @@ it('startup and navigation never inventory; results start unknown', () => {
   expect(get('skills-roots').textContent).toContain('尚未盘点');
 });
 
-it('inventory renders roots, source badges, omh lock and descriptions', async () => {
+it('inventory renders roots, source badges, engine lock and descriptions', async () => {
   click('inventory-skills'); await ready();
   expect(api.skillsInventory).toHaveBeenCalledExactlyOnceWith();
   const output = get('skills-roots');
@@ -60,7 +60,7 @@ it('inventory renders roots, source badges, omh lock and descriptions', async ()
   expect(output.textContent).toContain('Local Skill');
   expect(output.textContent).toContain('根不存在');
   // The managed link's target is shown on its own entry line only.
-  expect(output.textContent).toContain('链接目标：/TEST_ONLY/home/.oh-my-harness/repo/plugins/x');
+  expect(output.textContent).toContain('链接目标：/TEST_ONLY/home/.atm/repo/plugins/x');
   // Trash section renders alongside.
   expect(get('skills-trash').textContent).toContain('old-skill');
 });

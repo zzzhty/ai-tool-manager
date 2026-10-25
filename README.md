@@ -12,13 +12,13 @@
 
 ## 内置技能分发引擎（harness）
 
-ATM 内置原 [oh-my-harness](https://github.com/zzzhty/oh-my-harness)（omh）引擎源码（`omh/` 目录，Python），并以其为唯一的 harness 分发引擎：首次 `atm harness bootstrap` 将内嵌源码**物化**为 manager home（默认 `~/.oh-my-harness`，尊重 `OH_MY_HARNESS_HOME`）内的非 git 分发 `<home>/repo`，并创建工具 venv（首次需联网安装 PyYAML/jsonschema，其余命令保持离线）。状态、收据、journal 与锁全部归 manager home 所有；引擎身份是**内容哈希**（bundleIdentity），更新随 ATM 版本发布——`atm harness sync` 重物化/收编旧 git 安装，原 `omh update`/recover/reclone 已退役。
+ATM 内置原 [oh-my-harness](https://github.com/zzzhty/oh-my-harness)（已归档）引擎源码（`harness/` 目录，Python，身份已全面更名 atm-harness），并以其为唯一的 harness 分发引擎：首次 `atm harness bootstrap` 将内嵌源码**物化**为 manager home（默认 `~/.atm`，尊重 `ATM_HOME`）内的非 git 分发 `<home>/repo`，并创建工具 venv（首次需联网安装 PyYAML/jsonschema，其余命令保持离线）。状态、收据、journal 与锁全部归 manager home 所有；引擎身份是**内容哈希**（bundleIdentity），更新随 ATM 版本发布——`atm harness sync` 重物化/收编旧 git 安装，原 update/recover/reclone 流程已退役。
 
 - 引擎按需读取**记录态快照**并探测 `machine --protocol 1 capabilities`，不轮询，不将记录就绪解释为实时健康。GUI 四个入口与 CLI 共用同一物化引擎。
 - `check` 校验安装，`doctor` 严格校验（警告视为失败），由用户主动点击触发。可能启动客户端子进程，不保证离线；界面仅呈现通过/发现问题及退出码，详细日志请在终端查看。
 - 生命周期操作按能力启用；用户必须选择明确 harness 目标并在预览对话框确认，每次执行前重新验证能力与目标，成功或失败后重新读取记录快照。确认只授权所选操作和目标，绝不自动同意指令文件替换等额外风险。
 - 输入采用固定 argv，关闭 stdin（GUI 路径）；记录/能力读取限时 10 秒，诊断与变更限时 120 秒，输出有大小上限；超时终止子进程树、不自动重试。错误只显示固定安全词汇，不展示子进程日志。
-- 信任边界：执行的是**随 ATM 发布**的引擎代码，不再随 `omh update` 变化。状态校验产品身份，机器响应校验协议版本与操作。`--demo` 仅返回 TEST_ONLY 快照，所有真实引擎操作禁用。
+- 信任边界：执行的是**随 ATM 发布**的引擎代码，不再随旧 `omh update` 变化。状态校验产品身份，机器响应校验协议版本与操作。`--demo` 仅返回 TEST_ONLY 快照，所有真实引擎操作禁用。
 
 引擎后续组件与平台验收计划见 [平台与后续计划](docs/pending-platform-work.md)；规划不代表已实施功能。
 
@@ -26,7 +26,7 @@ ATM 内置原 [oh-my-harness](https://github.com/zzzhty/oh-my-harness)（omh）�
 
 “本地技能管理”面板直接盘点和操作各工具的技能根目录，**不依赖内置引擎安装**；引擎在场时自动识别其管理的投影链接并保护：
 
-- 内置 8 个工具根（Claude Code、Copilot CLI/VS Code、Codex、Z Code、Gemini CLI、OpenCode、OpenClaw、Pi Agent），路径语义与 omh registry 一致并尊重对应环境变量（`CLAUDE_CONFIG_DIR`、`COPILOT_HOME`、`CODEX_HOME`、`GEMINI_CLI_HOME`、`OPENCLAW_STATE_DIR`、`PI_CODING_AGENT_DIR`）；`~/.agents/skills` 与所有点开头条目（含 Codex 系统技能 `.system`）永不列出或触碰。
+- 内置 8 个工具根（Claude Code、Copilot CLI/VS Code、Codex、Z Code、Gemini CLI、OpenCode、OpenClaw、Pi Agent），路径语义与引擎 registry 一致并尊重对应环境变量（`CLAUDE_CONFIG_DIR`、`COPILOT_HOME`、`CODEX_HOME`、`GEMINI_CLI_HOME`、`OPENCLAW_STATE_DIR`、`PI_CODING_AGENT_DIR`）；`~/.agents/skills` 与所有点开头条目（含 Codex 系统技能 `.system`）永不列出或触碰。
 - 盘点按条目分类：内置引擎管理链接（canonicalize 后位于引擎管理目录内，**只读**，变更请用 `atm harness` 命令）、其它链接（含断链）、本地目录、普通文件；技能名和描述读取 SKILL.md 的受限 frontmatter（仅字面 `name:`/`description:` 行），解析失败保持未知。
 - 安装只接受本机普通目录（含 SKILL.md、不含任何链接或非常规文件），上限 512 文件、8 MB、8 层嵌套；staging 后原子改名，同名条目一律拒绝不覆盖；目标根不存在时自动创建。
 - 卸载的目录技能移动到本管理器数据目录的 `skills-trash/` 保管区，可恢复（原根有同名则拒绝）或彻底删除（模态确认声明不可恢复）；外部链接（含断链）仅供查看，不提供复制或卸载入口，ATM 不触碰链接或其目标。
@@ -62,7 +62,7 @@ atm harness -- <engine-args...>
 
 旧 `atm skills ...` 名词式语法已随本次合并移除（`inventory→list skills`、`install <SRC> <ROOT> [NAME]→install skills <SRC> --to <ROOT> [--name]`、`trash→list skills --trash`、`refresh→update skills`）。引擎模态直通 stdio、退出码原样透传；argv 限幅（≤64 项/单项 ≤4 KiB/总量 ≤32 KiB）、无 shell。
 
-投影模型：发布时技能源被收编为本管理器数据目录下的 canonical 副本，投影在 POSIX 用符号链接、Windows 用普通复制（无特权要求；`check` 会逐文件比对副本，`update skills --force` 覆盖被修改副本）。刷新先在目标根的隐藏暂存目录完整审计/复制，成功后受控交接并更新目录身份登记；复制、替换或登记失败会保留/恢复旧副本。缺失的 skills 根经路径与引擎边界检查后重建；仍有缺源、未授权覆盖修改或所有权未知时，`update skills` 返回非 0。强制中断可能留下 `.lkm-refresh-old-*` 或 `.lkm-staging-*`，需按错误提示核对保留内容，不应直接删除。GUI 的技能盘点会把 ATM 投影标注为“由 ATM 投影管理”；POSIX 链接投影不提供跨根复制，追加投影使用 `atm project skills`；Windows 普通副本仍可复制。投影撤除仅通过 `atm unproject skills`，保证登记一致。
+投影模型：发布时技能源被收编为本管理器数据目录下的 canonical 副本，投影在 POSIX 用符号链接、Windows 用普通复制（无特权要求；`check` 会逐文件比对副本，`update skills --force` 覆盖被修改副本）。刷新先在目标根的隐藏暂存目录完整审计/复制，成功后受控交接并更新目录身份登记；复制、替换或登记失败会保留/恢复旧副本。缺失的 skills 根经路径与引擎边界检查后重建；仍有缺源、未授权覆盖修改或所有权未知时，`update skills` 返回非 0。强制中断可能留下 `.atm-refresh-old-*` 或 `.atm-staging-*`，需按错误提示核对保留内容，不应直接删除。GUI 的技能盘点会把 ATM 投影标注为“由 ATM 投影管理”；POSIX 链接投影不提供跨根复制，追加投影使用 `atm project skills`；Windows 普通副本仍可复制。投影撤除仅通过 `atm unproject skills`，保证登记一致。
 
 ## 构建与验证
 
@@ -91,7 +91,7 @@ npm run tauri:build
 # 私有 keyring 和原生 GUI 另按验收矩阵的 CI 隔离前置条件执行
 ```
 
-- 库格式：Windows 使用 DPAPI CurrentUser 的 `vault.dpapi` / `templates.dpapi`；Linux 使用 Secret Service 主密钥 + AES-GCM 的 `vault.lkmvault` / `templates.lkmvault`。加密备份统一为 `.lkmbackup`。
+- 库格式：Windows 使用 DPAPI CurrentUser 的 `vault.dpapi` / `templates.dpapi`；Linux 使用 Secret Service 主密钥 + AES-GCM 的 `vault.atmvault` / `templates.atmvault`。加密备份统一为 `.atmbackup`。
 - JSON/JSONC 更新只替换已注册、已存在的字符串叶节点源字节。模板增加字段白名单和完整待写配置的本地 schema 验证，不创建文件、补齐字段、重排对象或重新序列化整份配置。
 - 候选模板从用户明确选择的单个配置中提取类型、结构和字段位置，保存前须确认。样本标量值不进入模板；属性名、JSON Pointer 和文件名提示仍会保留，请检查这些名称本身是否含敏感信息。没有官方应用预设，也不自动发现配置。
 - Schema 限定为明确声明的 JSON Schema 2020-12 **受限本地子集**；不支持的约束、其他方言、外部引用和循环引用会被拒绝。不能把本实现称为支持任意 JSON Schema。完整范围、回退注意事项见 [Rust 迁移说明](docs/RUST_MIGRATION.md)。
@@ -107,7 +107,7 @@ Linux / Windows / macOS 的功能支持状态、合成 GUI/CLI 验证步骤与�
 - Windows x64：`npm run tauri:build` 产出 `target\release\atm-desktop.exe`，需已安装 WebView2 Runtime。
 - Linux：同命令产出 `target/release/atm-desktop`，需要可用且已解锁的会话 keyring 与 WebKitGTK 运行库。
 - 想先体验假配置：运行时加 `--demo`。每次创建新的独立临时目录，演示数据不会进入默认密钥库；额度查询返回明确的合成假数据。
-- 正常运行的存储位置：Windows 为 `%LOCALAPPDATA%\LocalKeyManager`，Linux 为 `$XDG_DATA_HOME/local-key-manager`（默认 `~/.local/share/local-key-manager`）。这两个目录名是改名前的历史名称，特意保留以避免迁移已有密钥库。目录内 `vault.*` 保存密钥和目标映射，`templates.*` 保存加密模板，`backups\*.lkmbackup` 保存完整加密备份。程序只列举自己的备份目录。
+- 正常运行的存储位置：Windows 为 `%LOCALAPPDATA%\atm`，Linux 为 `$XDG_DATA_HOME/atm`（默认 `~/.local/share/atm`）。这两个目录名是改名前的历史名称，特意保留以避免迁移已有密钥库。目录内 `vault.*` 保存密钥和目标映射，`templates.*` 保存加密模板，`backups\*.atmbackup` 保存完整加密备份。程序只列举自己的备份目录。
 
 ## 使用步骤
 
@@ -153,7 +153,7 @@ DPAPI / 会话 keyring / Keychain 不能防御同一用户下的恶意进程、�
 
 批量操作是**逐文件原子替换，不是跨文件事务**。每个文件先校验、保存并刷新完整加密备份，再在同目录暂存新配置、重新校验并通过 Windows `ReplaceFile`（Linux/macOS 同类原子替换）替换。文件锁拒绝普通并发写入；替换需要允许删除共享，Windows 不提供本工具可用的“按预计文件身份比较并替换”原语，最终路径校验与替换间仍有极短的路径替换竞态。替换后再验证内容，有变化则报告需核查；不假称完全消除外部保存竞态。
 
-同目录 `.lkm-*.tmp` 是原子替换所需的**明文新配置暂存文件**，不是备份；正常与失败路径会清理，清理被占用阻止时结果区明确报告路径。突发断电或进程被强制终止可能留下暂存文件；请仅在已知目标目录检查这些文件。加密备份始终保持加密。
+同目录 `.atm-*.tmp` 是原子替换所需的**明文新配置暂存文件**，不是备份；正常与失败路径会清理，清理被占用阻止时结果区明确报告路径。突发断电或进程被强制终止可能留下暂存文件；请仅在已知目标目录检查这些文件。加密备份始终保持加密。
 
 结果区逐文件报告“成功 / 跳过 / 冲突 / 失败 / 已写入需核查 / 结果未确认”。部分文件失败时，其他成功文件不会自动撤销。用户可针对成功文件检查并回滚；失败文件的已有备份也保留，若原文没有改变，回滚会显示无需恢复。没有把 key、配置原文、框架原始异常或堆栈写入日志的路径；应用不创建持久日志。
 
@@ -167,11 +167,11 @@ DPAPI / 会话 keyring / Keychain 不能防御同一用户下的恶意进程、�
 
 ## 源码与重现验证
 
-- `crates/atm-core`：DPAPI / Secret Service / Keychain 安全存储、命名密钥库、规范路径与指纹、JSONC 源范围编辑、结构模板与 schema 校验、批量处理和回滚、Codex/GLM 额度探测、harness 引擎记录态快照、machine v1 生命周期接口与内嵌源物化（`omh_embed`）。
-- `omh/`：收编的 oh-my-harness 引擎源（Python，~1.3 万行 + 单测）：`.agents/harnesses/registry.json` 是分发权威；`scripts/atm_embed.py` 负责物化/同步/收编；`plugins/` 技能分发内容由内容哈希账本（`.agents/plugins/distribution-identity.json`）锁定，改动插件内容须同步重跑 `omh/scripts/update_plugin_generations.py`。注意 `omh/AGENTS.md` 是引擎必需文件（agent 工具在 `omh/` 内工作时会读到）。
+- `crates/atm-core`：DPAPI / Secret Service / Keychain 安全存储、命名密钥库、规范路径与指纹、JSONC 源范围编辑、结构模板与 schema 校验、批量处理和回滚、Codex/GLM 额度探测、harness 引擎记录态快照、machine v1 生命周期接口与内嵌源物化（`harness_embed`）。
+- `harness/`：收编的 harness 引擎源（Python，~1.3 万行 + 单测）：`.agents/harnesses/registry.json` 是分发权威；`scripts/atm_embed.py` 负责物化/同步/收编；`plugins/` 技能分发内容由内容哈希账本（`.agents/plugins/distribution-identity.json`）锁定，改动插件内容须同步重跑 `harness/scripts/update_plugin_generations.py`。注意 `harness/AGENTS.md` 是引擎必需文件（agent 工具在 `harness/` 内工作时会读到）。
 - `apps/desktop`：Tauri 2 壳（`src-tauri`，Tauri commands 与窗口构建）和 TypeScript 前端（`src`，单窗口界面、隔离演示、额度界面）。
 - `apps/desktop/tests` 与 `crates/atm-core/tests`：前端 vitest 测试与 Rust 核心/服务测试，全部用 `FAKE_` 值和每次新建的隔离目录。
-- `scripts/Verify-Local.sh`：离线源码与合成测试验证（fmt、clippy、Rust 测试、前端检查/测试/构建、Python 引擎 compileall+单测（缺依赖时诚实 SKIPPED，`LKM_OMH_PYTHON_STRICT=1` 时强制）、源码清单（文件白名单 + `omh/` 目录包含）与凭据模式审计），在子进程内关闭真实对象 opt-in。技能 fixture 的显式构造入口忽略外部工具根覆盖；应用入口保留环境配置语义，详见[隔离说明](docs/ACCEPTANCE_MATRIX.md#linux-本地离线检查)。macOS 原生隔离 GUI 使用 `scripts/Verify-MacOS.sh`；源码检查不能替代原生验证。
+- `scripts/Verify-Local.sh`：离线源码与合成测试验证（fmt、clippy、Rust 测试、前端检查/测试/构建、Python 引擎 compileall+单测（缺依赖时诚实 SKIPPED，`ATM_ENGINE_PYTHON_STRICT=1` 时强制）、源码清单（文件白名单 + `harness/` 目录包含）与凭据模式审计），在子进程内关闭真实对象 opt-in。技能 fixture 的显式构造入口忽略外部工具根覆盖；应用入口保留环境配置语义，详见[隔离说明](docs/ACCEPTANCE_MATRIX.md#linux-本地离线检查)。macOS 原生隔离 GUI 使用 `scripts/Verify-MacOS.sh`；源码检查不能替代原生验证。
 - `scripts/Test-LinuxKeyring.sh` / `Test-LinuxGui.sh` / `Test-TauriGui.ps1`：隔离 keyring 生命周期、Linux 原生 GUI 与 Windows Tauri GUI 冒烟。
 - `scripts/Audit-TrackedSource.ps1`：核对 Git 内实际源码的精确清单、可读性、包装头与明显凭据模式；本机能读和编译不代表没有公司透明加密，核查结论见 `docs/源码包与透明加密核查.md`。
 - `.github/workflows/rust-ci.yml`：Rust/前端静态检查与测试、Windows Tauri 构建、隔离真实 Secret Service 生命周期、Linux GUI 冒烟及 macOS arm64 原生隔离 GUI。工作流只请求源码读取权限，不使用真实 key 或部署服务。

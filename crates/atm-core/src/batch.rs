@@ -356,7 +356,7 @@ impl BatchUpdater {
             let parent = Path::new(&path)
                 .parent()
                 .ok_or(Error::new("PATH_LOCAL", "路径无效。"))?;
-            let temp = parent.join(format!(".lkm-{}.tmp", Uuid::new_v4()));
+            let temp = parent.join(format!(".atm-{}.tmp", Uuid::new_v4()));
             temporary = Some(temp.clone());
             let mut stage = windows::create_config_staging(&temp, &guard)?;
             stage.write_all(&file.replacement)?;
@@ -447,7 +447,7 @@ impl BatchUpdater {
             serde_json::to_vec(&payload)
                 .map_err(|_| Error::new("BACKUP_FORMAT", "无法编码备份。"))?,
         );
-        let path = self.directory.join(format!("{}.lkmbackup", Uuid::new_v4()));
+        let path = self.directory.join(format!("{}.atmbackup", Uuid::new_v4()));
         encrypted_write_with(&path, &bytes, self.protector.as_ref())?;
         Ok(path.to_string_lossy().into_owned())
     }
@@ -547,7 +547,7 @@ impl BatchUpdater {
 fn backup_extension(path: &Path) -> bool {
     path.extension()
         .and_then(|v| v.to_str())
-        .is_some_and(|v| v.eq_ignore_ascii_case("lkmbackup"))
+        .is_some_and(|v| v.eq_ignore_ascii_case("atmbackup"))
 }
 fn is_absolute_local_path(path: &str) -> bool {
     #[cfg(any(target_os = "linux", target_os = "macos"))]

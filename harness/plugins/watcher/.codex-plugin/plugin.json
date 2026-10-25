@@ -1,0 +1,23 @@
+{
+  "name": "watcher",
+  "version": "1.1.0+codex.c4c3fd634ebe300c",
+  "description": "Observe agent skill usage and audit documentation drift from one consolidated watcher plugin.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Watcher",
+    "shortDescription": "Audit docs and maintain skills from evidence",
+    "longDescription": "Watcher consolidates the former DocWatcher and Skill Watcher surfaces. It packages documentation alignment, housekeeping, skill maintenance, and semantic compression skills while keeping documentation audit and skill usage evidence in separate runtime domains.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Audit documentation drift, clean stale workspace artifacts, or analyze skill usage evidence with the appropriate watcher skill"
+    ]
+  }
+}

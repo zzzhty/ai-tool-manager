@@ -26,24 +26,15 @@ impl Env {
             ("USERPROFILE", self.home.path().to_path_buf()),
             ("XDG_DATA_HOME", self.data.path().to_path_buf()),
             ("LOCALAPPDATA", self.data.path().to_path_buf()),
-            (
-                "OH_MY_HARNESS_HOME",
-                self.home.path().join("test-oh-my-harness"),
-            ),
+            ("ATM_HOME", self.home.path().join("test-atm-harness")),
         ]
     }
 
     fn manager_data(&self) -> PathBuf {
         if cfg!(target_os = "macos") {
-            self.home
-                .path()
-                .join("Library/Application Support/LocalKeyManager")
+            self.home.path().join("Library/Application Support/atm")
         } else {
-            self.data.path().join(if cfg!(windows) {
-                "LocalKeyManager"
-            } else {
-                "local-key-manager"
-            })
+            self.data.path().join("atm")
         }
     }
 
@@ -699,7 +690,7 @@ mod engine_delegation {
     use std::os::unix::fs::PermissionsExt;
 
     fn manager_home(env: &Env) -> PathBuf {
-        env.home.path().join("test-oh-my-harness")
+        env.home.path().join("test-atm-harness")
     }
 
     fn fake_venv_python(env: &Env, assertions: &str, exit_code: i32) -> PathBuf {
@@ -715,7 +706,7 @@ mod engine_delegation {
     }
 
     fn touch_engine_entry(env: &Env) {
-        let cli = manager_home(env).join("repo/scripts/omh.py");
+        let cli = manager_home(env).join("repo/scripts/engine.py");
         fs::create_dir_all(cli.parent().unwrap()).unwrap();
         fs::write(&cli, b"# TEST_ONLY stub\n").unwrap();
     }
@@ -731,7 +722,7 @@ mod engine_delegation {
         let env = Env::new();
         touch_engine_entry(&env);
         let home = manager_home(&env);
-        let cli = home.join("repo/scripts/omh.py").display().to_string();
+        let cli = home.join("repo/scripts/engine.py").display().to_string();
         let home = home.display().to_string();
         fake_venv_python(
             &env,
@@ -797,7 +788,7 @@ test "$5" = "codex" || exit 9"#
         let output = atm(&env, &["install", "skills", "--harness", "codex"]);
         assert_code(&output, 1);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(stderr.contains("OMH_NOT_INSTALLED"), "stderr: {stderr}");
+        assert!(stderr.contains("HARNESS_NOT_INSTALLED"), "stderr: {stderr}");
         assert!(stderr.contains("atm harness bootstrap"), "stderr: {stderr}");
     }
 
@@ -862,12 +853,12 @@ test "$5" = "--apply" || exit 9"#,
     fn harness_bootstrap_runs_the_embed_materializer_via_base_python() {
         let env = Env::new();
         let sources = tempfile::tempdir().unwrap();
-        let embedded_path = sources.path().join("omh");
+        let embedded_path = sources.path().join("harness");
         let script_path = embedded_path.join("scripts/atm_embed.py");
         fs::create_dir_all(script_path.parent().unwrap()).unwrap();
         fs::write(&script_path, b"# TEST_ONLY stub\n").unwrap();
         fs::write(
-            script_path.parent().unwrap().join("omh.py"),
+            script_path.parent().unwrap().join("engine.py"),
             b"# TEST_ONLY stub\n",
         )
         .unwrap();
@@ -885,8 +876,8 @@ test "$5" = "--apply" || exit 9"#,
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&base, fs::Permissions::from_mode(0o700)).unwrap();
         let output = atm_command(&env, &["harness", "bootstrap"])
-            .env("OH_MY_HARNESS_BOOTSTRAP_PYTHON", &base)
-            .env("ATM_OMH_SOURCE", &embedded)
+            .env("ATM_BOOTSTRAP_PYTHON", &base)
+            .env("ATM_ENGINE_SOURCE", &embedded)
             .output()
             .unwrap();
         assert_ok(&output);

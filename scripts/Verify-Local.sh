@@ -2,17 +2,17 @@
 # Synthetic tests only; no Home Codex CLI or provider-account queries.
 set -euo pipefail
 # This entry point is synthetic even if the caller enabled separate live tests.
-export LKM_SKILLS_LIVE=0 LKM_OMH_LIVE=0
-unset ATM_TEST_OMH_CHECKOUT
-lkm_repo="$(cd -- "$(dirname -- "$0")/.." && pwd)"
-cd "$lkm_repo"
-lkm_cache="$lkm_repo/.validation-cache"
-mkdir -p "$lkm_cache"
-touch "$lkm_cache/npm-user.conf" "$lkm_cache/npm-global.conf"
-if [[ -z "$(printenv CARGO_HOME)" ]]; then export CARGO_HOME="$lkm_cache/cargo"; fi
-export npm_config_userconfig="$lkm_cache/npm-user.conf"
-export npm_config_globalconfig="$lkm_cache/npm-global.conf"
-export npm_config_cache="$lkm_cache/npm"
+export ATM_SKILLS_LIVE=0 ATM_ENGINE_LIVE=0
+unset ATM_TEST_ENGINE_CHECKOUT
+atm_repo="$(cd -- "$(dirname -- "$0")/.." && pwd)"
+cd "$atm_repo"
+atm_cache="$atm_repo/.validation-cache"
+mkdir -p "$atm_cache"
+touch "$atm_cache/npm-user.conf" "$atm_cache/npm-global.conf"
+if [[ -z "$(printenv CARGO_HOME)" ]]; then export CARGO_HOME="$atm_cache/cargo"; fi
+export npm_config_userconfig="$atm_cache/npm-user.conf"
+export npm_config_globalconfig="$atm_cache/npm-global.conf"
+export npm_config_cache="$atm_cache/npm"
 cargo fmt --all --check
 cargo clippy --locked --offline -p atm-core -p atm-cli -p atm --no-default-features --all-targets -- -D warnings
 cargo test --locked --offline -p atm-core -p atm-cli -p atm --no-default-features --all-targets
@@ -21,19 +21,19 @@ npm test
 npm run build
 # Embedded harness engine suite. Byte-compilation always runs; unit tests need
 # PyYAML/jsonschema importable by the runner. Without them the suite is an
-# honest SKIPPED (never a fabricated pass); CI sets LKM_OMH_PYTHON_STRICT=1
+# honest SKIPPED (never a fabricated pass); CI sets ATM_ENGINE_PYTHON_STRICT=1
 # to require them.
-python3 -m compileall -q omh/scripts omh/tests omh/plugins/watcher omh/plugins/workflow
+python3 -m compileall -q harness/scripts harness/tests harness/plugins/watcher harness/plugins/workflow
 if python3 -c "import yaml, jsonschema" 2>/dev/null; then
-  PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s omh/tests -p "test_*.py"
-  PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s omh/plugins/watcher/tests -p "test_*.py"
-  PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s omh/plugins/workflow/tests -p "test_*.py"
-  (cd omh && python3 scripts/check_plugin_generations.py >/dev/null)
-elif [[ "${LKM_OMH_PYTHON_STRICT:-0}" == "1" ]]; then
+  PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s harness/tests -p "test_*.py"
+  PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s harness/plugins/watcher/tests -p "test_*.py"
+  PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s harness/plugins/workflow/tests -p "test_*.py"
+  (cd harness && python3 scripts/check_plugin_generations.py >/dev/null)
+elif [[ "${ATM_ENGINE_PYTHON_STRICT:-0}" == "1" ]]; then
   echo "PYTHON_SUITE=FAIL: tooling dependencies missing (yaml/jsonschema) in strict mode" >&2
   exit 1
 else
-  echo "PYTHON_SUITE=SKIPPED (tooling deps unavailable; run pip install -r omh/requirements.txt)"
+  echo "PYTHON_SUITE=SKIPPED (tooling deps unavailable; run pip install -r harness/requirements.txt)"
 fi
 git diff --check
 python3 - <<'PY'

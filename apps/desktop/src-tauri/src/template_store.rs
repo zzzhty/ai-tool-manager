@@ -116,7 +116,7 @@ impl TemplateStore {
                 options.mode(0o600);
             }
             let mut required = options.open(&marker)?;
-            required.write_all(b"LocalKeyManager/template-sidecar/v1\n")?;
+            required.write_all(b"ai-tool-manager/template-sidecar/v1\n")?;
             required.sync_all()?;
         }
         let path = Self::path(directory);

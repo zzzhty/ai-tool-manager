@@ -29,7 +29,7 @@
     "allow-disconnect-codex-cli",
     "allow-query-codex-usage",
     "allow-query-glm-usage",
-    "allow-omh-status",
+    "allow-harness-status",
     "allow-skills-inventory",
     "allow-skills-install",
     "allow-skills-uninstall",
@@ -37,8 +37,8 @@
     "allow-skills-purge",
     "allow-skills-copy",
     "allow-report-linux-smoke",
-    "allow-omh-capabilities",
-    "allow-omh-execute",
-    "allow-omh-diagnose"
+    "allow-harness-capabilities",
+    "allow-harness-execute",
+    "allow-harness-diagnose"
   ]
 }

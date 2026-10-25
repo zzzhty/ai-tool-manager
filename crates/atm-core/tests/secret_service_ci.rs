@@ -13,10 +13,10 @@ use zeroize::Zeroizing;
 fn isolated_secret_service_lifecycle() {
     assert_eq!(std::env::var("CI").as_deref(), Ok("true"));
     assert_eq!(
-        std::env::var("LKM_ISOLATED_KEYRING_TEST").as_deref(),
+        std::env::var("ATM_ISOLATED_KEYRING_TEST").as_deref(),
         Ok("1")
     );
-    let root = PathBuf::from(std::env::var_os("LKM_TEST_ROOT").expect("isolated root"));
+    let root = PathBuf::from(std::env::var_os("ATM_TEST_ROOT").expect("isolated root"));
     assert!(root.is_absolute());
     assert_eq!(
         PathBuf::from(std::env::var_os("HOME").unwrap()),
@@ -27,7 +27,7 @@ fn isolated_secret_service_lifecycle() {
         .starts_with("unix:"));
     let directory = root.join("TEST_ONLY_vault");
     let config = root.join("TEST_ONLY_config.jsonc");
-    let phase = std::env::var("LKM_KEYRING_PHASE").unwrap();
+    let phase = std::env::var("ATM_KEYRING_PHASE").unwrap();
     let original =
         b"{\r\n // TEST_ONLY comment\r\n \"key\":\"TEST_ONLY_OLD\", \"keep\":1.00,\r\n}\r\n";
     if phase == "create" {

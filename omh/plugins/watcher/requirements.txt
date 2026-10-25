@@ -1,2 +1,0 @@
-# Watcher uses the shared oh-my-harness tooling dependencies.
--r ../../requirements.txt

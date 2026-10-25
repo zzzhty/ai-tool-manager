@@ -40,7 +40,7 @@ pub fn data_directory() -> Result<PathBuf> {
     #[cfg(windows)]
     {
         std::env::var_os("LOCALAPPDATA")
-            .map(|p| PathBuf::from(p).join("LocalKeyManager"))
+            .map(|p| PathBuf::from(p).join("atm"))
             .ok_or(Error::new("DATA_PATH", "无法确定本地用户目录。"))
     }
     #[cfg(target_os = "linux")]
@@ -54,7 +54,7 @@ pub fn data_directory() -> Result<PathBuf> {
             return Err(Error::new("DATA_PATH", "用户数据目录必须为绝对路径。"));
         }
         // 历史数据目录名：ATM 改名时特意保留，避免迁移已有密钥库。
-        Ok(base.join("local-key-manager"))
+        Ok(base.join("atm"))
     }
     #[cfg(target_os = "macos")]
     {
@@ -74,14 +74,14 @@ pub fn data_directory() -> Result<PathBuf> {
 
 pub fn vault_filename() -> &'static str {
     if cfg!(any(target_os = "linux", target_os = "macos")) {
-        "vault.lkmvault"
+        "vault.atmvault"
     } else {
         "vault.dpapi"
     }
 }
 pub fn template_filename() -> &'static str {
     if cfg!(any(target_os = "linux", target_os = "macos")) {
-        "templates.lkmvault"
+        "templates.atmvault"
     } else {
         "templates.dpapi"
     }
@@ -159,7 +159,7 @@ fn macos_data_directory(home: &std::path::Path) -> Result<PathBuf> {
     if !home.is_absolute() || home.to_string_lossy().chars().any(char::is_control) {
         return Err(Error::new("DATA_PATH", "用户主目录须为本机绝对路径。"));
     }
-    Ok(home.join("Library/Application Support/LocalKeyManager"))
+    Ok(home.join("Library/Application Support/atm"))
 }
 
 #[cfg(test)]
@@ -170,7 +170,7 @@ mod tests {
         let home = std::env::temp_dir().join("TEST_ONLY_home");
         assert_eq!(
             macos_data_directory(&home).unwrap(),
-            home.join("Library/Application Support/LocalKeyManager")
+            home.join("Library/Application Support/atm")
         );
         assert_eq!(
             macos_data_directory(std::path::Path::new("relative"))
