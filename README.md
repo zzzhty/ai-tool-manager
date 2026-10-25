@@ -16,8 +16,8 @@
 
 - 保留独立 CLI；不嵌入运行时、不提供 HTTP 服务，不直接写 OMH 状态、收据或托管链接。各平台均使用管理目录内 venv Python 与 `repo/scripts/omh.py` 的绝对路径，不经过 shell/cmd shim；尊重 `OH_MY_HARNESS_HOME`。
 - `check` 校验安装，`doctor` 严格校验（警告视为失败），由用户主动点击触发。可能启动客户端子进程，不保证离线；界面仅呈现通过/发现问题及退出码，详细日志请在终端查看，避免将任意子进程输出带入凭据界面。
-- 生命周期操作按能力启用。当前 v1 支持 install / refresh / remove / repair，用户必须选择明确的 harness 目标并在预览对话框确认。每次执行前重新验证能力与目标，成功或失败后重新读取记录快照。
-- 确认只授权所选操作和目标，绝不自动同意现有指令文件替换、清空目录、重新克隆或其它额外风险。需要交互确认时返回明确提示，用户在终端处理。repair 只修复现有健康运行时和检出中的已记录分发，不恢复未完成事务、不重建运行时、不改 PATH；update / recover 等未支持的操作禁用；旧 CLI 仍可查询记录，但不能从 ATM 变更。
+- 生命周期操作按能力启用。ATM 静态允许 install / refresh / remove / update / repair，实际可用项取决于所安装 CLI 的 capabilities，用户必须选择明确的 harness 目标并在预览对话框确认。每次执行前重新验证能力与目标，成功或失败后重新读取记录快照。
+- 确认只授权所选操作和目标，绝不自动同意现有指令文件替换、清空目录、重新克隆或其它额外风险。需要交互确认时返回明确提示，用户在终端处理。repair 只修复现有健康运行时和检出中的已记录分发，不恢复未完成事务、不重建运行时、不改 PATH；能力未声明支持的操作禁用；recover 不在 ATM 支持范围。update 仅在能力与确认约束均满足时可用，不提供绕过交互的安装/升级引导；旧 CLI 仍可查询记录，但不能从 ATM 变更。
 - 输入采用固定 argv，关闭 stdin；不向子进程传递 ATM 凭据或密钥。记录/能力读取限时 10 秒，诊断与变更限时 120 秒，输出有大小上限；超时终止子进程树、不自动重试，提示结果可能不完整。错误只显示固定安全词汇，不展示子进程日志。
 - 信任边界：执行的是用户独立安装的 OMH 代码，该代码可随 `omh update` 变化。状态校验产品身份，机器响应校验协议版本与操作。`--demo` 仅返回 TEST_ONLY 快照，所有真实 CLI 操作禁用。
 
@@ -77,8 +77,7 @@ npm run tauri:build
 ```bash
 # Linux（离线、隔离缓存的全量本地验证）
 ./scripts/Verify-Local.sh
-./scripts/Test-LinuxKeyring.sh
-./scripts/Test-LinuxGui.sh
+# 私有 keyring 和原生 GUI 另按验收矩阵的 CI 隔离前置条件执行
 ```
 
 - 库格式：Windows 使用 DPAPI CurrentUser 的 `vault.dpapi` / `templates.dpapi`；Linux 使用 Secret Service 主密钥 + AES-GCM 的 `vault.lkmvault` / `templates.lkmvault`。加密备份统一为 `.lkmbackup`。
@@ -89,6 +88,8 @@ npm run tauri:build
 - `.github/workflows/rust-ci.yml` 包含 Rust、前端、Windows Tauri 构建、隔离真实 Secret Service 生命周期与 Linux 原生 GUI 冒烟。**存在工作流或测试源码不代表测试已通过**；核对所用精确提交的检查结果，再考虑真实数据。
 
 前端/Rust 依赖还原可能访问 npm/Cargo 包源；应用运行时不抓取 schema 或发送配置。工具链和依赖缓存不齐全时应报告未执行项目；不要把缺少 Windows GUI、WebView2、DPAPI 或 Linux keyring 环境当成通过。`npm run build` 只验证前端产物，不能代替 Tauri 构建与启动。
+
+Linux / Windows / macOS 的功能支持状态、合成 GUI/CLI 验证步骤与「文档声明 / 源码具备 / 本机已运行」证据分级见 [跨平台合成验收矩阵与操作手册](docs/ACCEPTANCE_MATRIX.md)。
 
 ## 运行
 
@@ -158,7 +159,7 @@ DPAPI / 会话 keyring / Keychain 不能防御同一用户下的恶意进程、�
 - `crates/atm-core`：DPAPI / Secret Service / Keychain 安全存储、命名密钥库、规范路径与指纹、JSONC 源范围编辑、结构模板与 schema 校验、批量处理和回滚、Codex/GLM 额度探测、oh-my-harness 记录态快照与能力受限的独立 CLI 生命周期接口。
 - `apps/desktop`：Tauri 2 壳（`src-tauri`，Tauri commands 与窗口构建）和 TypeScript 前端（`src`，单窗口界面、隔离演示、额度界面）。
 - `apps/desktop/tests` 与 `crates/atm-core/tests`：前端 vitest 测试与 Rust 核心/服务测试，全部用 `FAKE_` 值和每次新建的隔离目录。
-- `scripts/Verify-Local.sh`：离线源码与合成测试验证（fmt、clippy、Rust 测试、前端检查/测试/构建、源码清单与凭据模式审计）。macOS 原生隔离 GUI 使用 `scripts/Verify-MacOS.sh`；源码检查不能替代原生验证。
+- `scripts/Verify-Local.sh`：离线源码与合成测试验证（fmt、clippy、Rust 测试、前端检查/测试/构建、源码清单与凭据模式审计），在子进程内关闭真实对象 opt-in。技能 fixture 的显式构造入口忽略外部工具根覆盖；应用入口保留环境配置语义，详见[隔离说明](docs/ACCEPTANCE_MATRIX.md#linux-本地离线检查)。macOS 原生隔离 GUI 使用 `scripts/Verify-MacOS.sh`；源码检查不能替代原生验证。
 - `scripts/Test-LinuxKeyring.sh` / `Test-LinuxGui.sh` / `Test-TauriGui.ps1`：隔离 keyring 生命周期、Linux 原生 GUI 与 Windows Tauri GUI 冒烟。
 - `scripts/Audit-TrackedSource.ps1`：核对 Git 内实际源码的精确清单、可读性、包装头与明显凭据模式；本机能读和编译不代表没有公司透明加密，核查结论见 `docs/源码包与透明加密核查.md`。
 - `.github/workflows/rust-ci.yml`：Rust/前端静态检查与测试、Windows Tauri 构建、隔离真实 Secret Service 生命周期、Linux GUI 冒烟及 macOS arm64 原生隔离 GUI。工作流只请求源码读取权限，不使用真实 key 或部署服务。

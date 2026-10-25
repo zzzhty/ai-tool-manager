@@ -93,6 +93,7 @@ fn create_materialization(canonical: &Path, target: &Path) -> Result<()> {
 pub struct ProjectionRegistry {
     root: PathBuf,
     home: PathBuf,
+    inherit_environment: bool,
 }
 
 impl ProjectionRegistry {
@@ -103,14 +104,31 @@ impl ProjectionRegistry {
         let home = user_home()?;
         storage::ensure_directory(&root)?;
         storage::ensure_directory(&root.join(SOURCES_DIR))?;
-        Ok(Self { root, home })
+        Ok(Self {
+            root,
+            home,
+            inherit_environment: true,
+        })
     }
 
-    /// Test seam: explicit roots instead of the environment.
+    /// Explicit roots: harness and manager environment overrides are ignored.
     pub fn at_root(root: PathBuf, home: PathBuf) -> Result<Self> {
         storage::ensure_directory(&root)?;
         storage::ensure_directory(&root.join(SOURCES_DIR))?;
-        Ok(Self { root, home })
+        Ok(Self {
+            root,
+            home,
+            inherit_environment: false,
+        })
+    }
+
+    fn manager_home(&self) -> PathBuf {
+        let override_home = if self.inherit_environment {
+            std::env::var_os("OH_MY_HARNESS_HOME")
+        } else {
+            None
+        };
+        crate::omh::resolve_manager_home(override_home.as_deref(), &self.home)
     }
 
     fn registry_path(&self) -> PathBuf {
@@ -125,10 +143,15 @@ impl ProjectionRegistry {
         self.sources_root().join(name)
     }
 
-    pub(crate) fn read_records(root: &Path, home: &Path) -> Result<Vec<SourceRecord>> {
+    pub(crate) fn read_records(
+        root: &Path,
+        home: &Path,
+        inherit_environment: bool,
+    ) -> Result<Vec<SourceRecord>> {
         Self {
             root: root.into(),
             home: home.into(),
+            inherit_environment,
         }
         .load()
     }
@@ -165,7 +188,9 @@ impl ProjectionRegistry {
                 checked_name(&projection.link_name)?;
                 // Keep receipts readable if a tool root is redirected into the
                 // protected shared directory. Every access still checks the root.
-                if let Err(error) = target_root_dir(&self.home, &projection.root_id) {
+                if let Err(error) =
+                    target_root_dir(&self.home, &projection.root_id, self.inherit_environment)
+                {
                     if error.code != "SKILLS_PROTECTED" {
                         return Err(error);
                     }
@@ -235,10 +260,7 @@ impl ProjectionRegistry {
         checked_name(name)?;
         require_unprotected_skill_path(&self.home, source)?;
         auditable_source(source)?;
-        let manager_home = crate::omh::resolve_manager_home(
-            std::env::var_os("OH_MY_HARNESS_HOME").as_deref(),
-            &self.home,
-        );
+        let manager_home = self.manager_home();
         if path_within(source, &manager_home) {
             return Err(Error::new(
                 "SKILLS_OMH_LOCKED",
@@ -391,11 +413,8 @@ impl ProjectionRegistry {
     }
 
     fn require_free_target(&self, target_root: &str, name: &str) -> Result<()> {
-        let root = target_root_dir(&self.home, target_root)?;
-        let manager_home = crate::omh::resolve_manager_home(
-            std::env::var_os("OH_MY_HARNESS_HOME").as_deref(),
-            &self.home,
-        );
+        let root = target_root_dir(&self.home, target_root, self.inherit_environment)?;
+        let manager_home = self.manager_home();
         if path_within(&root, &manager_home) {
             return Err(Error::new(
                 "SKILLS_OMH_LOCKED",
@@ -422,7 +441,7 @@ impl ProjectionRegistry {
     ) -> Result<()> {
         checked_name(link_name)?;
         self.require_free_target(target_root, link_name)?;
-        let root_dir = target_root_dir(&self.home, target_root)?;
+        let root_dir = target_root_dir(&self.home, target_root, self.inherit_environment)?;
         fs::create_dir_all(&root_dir).map_err(Error::io)?;
         let target = root_dir.join(link_name);
         if fs::symlink_metadata(&target).is_ok() {
@@ -502,7 +521,8 @@ impl ProjectionRegistry {
         expected_identity: Option<&str>,
     ) -> Result<()> {
         if self.removable_projection(canonical, target_root, link_name, force, expected_identity)? {
-            let target = target_root_dir(&self.home, target_root)?.join(link_name);
+            let target =
+                target_root_dir(&self.home, target_root, self.inherit_environment)?.join(link_name);
             remove_materialization(&target)?;
         }
         Ok(())
@@ -516,11 +536,8 @@ impl ProjectionRegistry {
         force: bool,
         expected_identity: Option<&str>,
     ) -> Result<bool> {
-        let root = target_root_dir(&self.home, target_root)?;
-        let manager_home = crate::omh::resolve_manager_home(
-            std::env::var_os("OH_MY_HARNESS_HOME").as_deref(),
-            &self.home,
-        );
+        let root = target_root_dir(&self.home, target_root, self.inherit_environment)?;
+        let manager_home = self.manager_home();
         if path_within(&root, &manager_home) {
             return Err(Error::new(
                 "SKILLS_OMH_LOCKED",
@@ -691,7 +708,11 @@ impl ProjectionRegistry {
                 continue;
             }
             for projection in &record.projections {
-                let (status, detail) = match target_root_dir(&self.home, &projection.root_id) {
+                let (status, detail) = match target_root_dir(
+                    &self.home,
+                    &projection.root_id,
+                    self.inherit_environment,
+                ) {
                     Err(error) if error.code == "SKILLS_PROTECTED" => (
                         "broken_link",
                         Some("工具根指向受保护的共享技能目录".to_owned()),
@@ -872,11 +893,8 @@ impl ProjectionRegistry {
 
     /// Validate existing components before recreating a missing skills root.
     fn refresh_root(&self, root_id: &str) -> Result<PathBuf> {
-        let root = target_root_dir(&self.home, root_id)?;
-        let manager_home = crate::omh::resolve_manager_home(
-            std::env::var_os("OH_MY_HARNESS_HOME").as_deref(),
-            &self.home,
-        );
+        let root = target_root_dir(&self.home, root_id, self.inherit_environment)?;
+        let manager_home = self.manager_home();
         if path_within(&root, &manager_home) {
             return Err(Error::new(
                 "SKILLS_OMH_LOCKED",

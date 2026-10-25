@@ -73,6 +73,7 @@
   "crates/atm-core/tests/support/storage_probe.rs",
   "crates/atm-core/tests/templates.rs",
   "crates/atm-core/tests/usage.rs",
+  "docs/ACCEPTANCE_MATRIX.md",
   "docs/CODEX_GLM_LINUX.md",
   "docs/MACOS.md",
   "docs/RUST_MIGRATION.md",

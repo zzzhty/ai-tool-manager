@@ -6,13 +6,15 @@ use atm_core::{
     linux::AeadProtector,
     storage::{self, Protector},
     templates::{self, ApplicationIdentity},
-    windows, Error, Result, TargetMapping, Vault,
+    windows, Error, Result, TargetMapping, Vault, MASK,
 };
 use std::{
     fs,
+    fs::{File, FileTimes},
     os::unix::fs::{symlink, PermissionsExt},
     path::Path,
     sync::Arc,
+    time::{Duration, SystemTime},
 };
 use uuid::Uuid;
 use zeroize::Zeroizing;
@@ -464,4 +466,283 @@ fn inherited_default_acl_cannot_grant_new_access_on_config_replacement() {
         .to_string_lossy()
         .starts_with(".lkm-")));
     eprintln!("LINUX_DEFAULT_ACL=PASS: inherited ACL exercised; no new named-user access");
+}
+
+#[test]
+fn grouped_fields_with_distinct_keys_share_one_backup_and_exact_bytes() {
+    let root = tempfile::tempdir().unwrap();
+    let p = protector();
+    let mut vault =
+        Vault::open_with_protector(&root.path().join("TEST_ONLY_vault"), p.clone()).unwrap();
+    let file = root.path().join("TEST_ONLY_grouped.jsonc");
+    let original =
+        b"{\r\n// TEST_ONLY_COMMENT\r\n\"key\":\"TEST_ONLY_OLD\",\"second\":\"TEST_ONLY_OLDER\",\r\n}\r\n";
+    fs::write(&file, original).unwrap();
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
+    let first = vault
+        .save_key(
+            None,
+            "TEST_ONLY_key_a".into(),
+            Zeroizing::new("TEST_ONLY_A".into()),
+        )
+        .unwrap();
+    let second = vault
+        .save_key(
+            None,
+            "TEST_ONLY_key_b".into(),
+            Zeroizing::new("TEST_ONLY_B".into()),
+        )
+        .unwrap();
+    let path = file.to_str().unwrap().to_owned();
+    let a = vault
+        .save_target(TargetMapping {
+            id: Uuid::nil(),
+            label: "TEST_ONLY_field_a".into(),
+            file_path: path.clone(),
+            pointer: "/key".into(),
+            key_id: first,
+            bearer_prefix: false,
+            replace_variables: false,
+        })
+        .unwrap();
+    let b = vault
+        .save_target(TargetMapping {
+            id: Uuid::nil(),
+            label: "TEST_ONLY_field_b".into(),
+            file_path: path.clone(),
+            pointer: "/second".into(),
+            key_id: second,
+            bearer_prefix: false,
+            replace_variables: false,
+        })
+        .unwrap();
+    let batch = BatchUpdater::with_protector(vault.backup_directory(), p);
+    // Unsorted selection: grouping must still merge both fields into one file plan.
+    let mut plan = batch.preview(&vault, &[b, a]);
+    let view = plan.view();
+    assert_eq!(view.files.len(), 1);
+    assert_eq!(view.files[0].fields.len(), 2);
+    assert!(view.files[0].encoding.contains("UTF-8"));
+    assert!(view.files[0].changed);
+    let visible = serde_json::to_string(&view).unwrap();
+    assert!(visible.contains(MASK));
+    assert!(visible.contains("/second") && visible.contains("/key"));
+    assert!(
+        !visible.contains("TEST_ONLY_A")
+            && !visible.contains("TEST_ONLY_B")
+            && !visible.contains("TEST_ONLY_OLD")
+    );
+    let id = plan.id;
+    let results = batch.apply(&mut plan, id, true).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].outcome, Outcome::Applied);
+    // One canonical file means exactly one backup and one atomic replacement.
+    assert_eq!(batch.backups().unwrap().len(), 1);
+    let expected = String::from_utf8(original.to_vec())
+        .unwrap()
+        .replace("\"key\":\"TEST_ONLY_OLD\"", "\"key\":\"TEST_ONLY_A\"")
+        .replace(
+            "\"second\":\"TEST_ONLY_OLDER\"",
+            "\"second\":\"TEST_ONLY_B\"",
+        );
+    assert_eq!(fs::read(&path).unwrap(), expected.as_bytes());
+}
+
+#[test]
+fn preview_requires_confirmation_and_is_single_use_or_cancellable() {
+    let root = tempfile::tempdir().unwrap();
+    let (vault, batch, path, target) = fixture(root.path(), br#"{"key":"TEST_ONLY_OLD"}"#);
+    let mut plan = batch.preview(&vault, &[target]);
+    let id = plan.id;
+    assert_eq!(
+        batch
+            .apply(&mut plan, Uuid::new_v4(), true)
+            .unwrap_err()
+            .code,
+        "PREVIEW_EXPIRED"
+    );
+    assert_eq!(
+        batch.apply(&mut plan, id, false).unwrap_err().code,
+        "CONFIRM_REQUIRED"
+    );
+    assert_eq!(
+        batch.apply(&mut plan, id, true).unwrap().remove(0).outcome,
+        Outcome::Applied
+    );
+    assert_eq!(
+        batch.apply(&mut plan, id, true).unwrap_err().code,
+        "PREVIEW_EXPIRED"
+    );
+    assert_eq!(fs::read(&path).unwrap(), br#"{"key":"TEST_ONLY_NEW"}"#);
+    let mut cancelled = batch.preview(&vault, &[target]);
+    let id = cancelled.id;
+    cancelled.cancel();
+    assert_eq!(
+        batch.apply(&mut cancelled, id, true).unwrap_err().code,
+        "PREVIEW_EXPIRED"
+    );
+    assert_eq!(fs::read(&path).unwrap(), br#"{"key":"TEST_ONLY_NEW"}"#);
+}
+
+#[test]
+fn duplicate_registration_and_duplicate_selection_reject_the_whole_file() {
+    let root = tempfile::tempdir().unwrap();
+    let original = br#"{"key":"TEST_ONLY_OLD","keep":"TEST_ONLY_KEEP"}"#;
+    let (mut vault, batch, path, target) = fixture(root.path(), original);
+    let key_id = vault
+        .snapshot()
+        .targets
+        .iter()
+        .find(|t| t.id == target)
+        .unwrap()
+        .key_id;
+    // Registering the same file+pointer again is refused at the vault level.
+    assert_eq!(
+        vault
+            .save_target(TargetMapping {
+                id: Uuid::nil(),
+                label: "TEST_ONLY_duplicate".into(),
+                file_path: path.clone(),
+                pointer: "/key".into(),
+                key_id,
+                bearer_prefix: false,
+                replace_variables: false,
+            })
+            .unwrap_err()
+            .code,
+        "TARGET_DUPLICATE"
+    );
+    // Selecting one mapping twice is an ambiguous whole-file rejection.
+    let mut plan = batch.preview(&vault, &[target, target]);
+    let id = plan.id;
+    let result = batch.apply(&mut plan, id, true).unwrap().remove(0);
+    assert_eq!(result.outcome, Outcome::Failed);
+    assert_eq!(result.code, Some("FIELD_AMBIGUOUS"));
+    assert_eq!(fs::read(&path).unwrap(), original);
+    assert!(batch.backups().unwrap().is_empty());
+}
+
+#[test]
+fn post_preview_mtime_identity_symlink_and_removal_changes_conflict() {
+    fn assert_conflict(
+        root: &Path,
+        original: &[u8],
+        code: &'static str,
+        mutate: impl FnOnce(&Path, &str),
+    ) {
+        let (vault, batch, path, target) = fixture(root, original);
+        let mut plan = batch.preview(&vault, &[target]);
+        let id = plan.id;
+        mutate(root, &path);
+        let result = batch.apply(&mut plan, id, true).unwrap().remove(0);
+        assert_eq!(result.outcome, Outcome::Conflict);
+        assert_eq!(result.code, Some(code));
+        assert!(batch.backups().unwrap().is_empty());
+        if Path::new(&path).exists() {
+            assert_eq!(fs::read(&path).unwrap(), original);
+        }
+    }
+    let original = br#"{"key":"TEST_ONLY_OLD","keep":"TEST_ONLY_KEEP"}"#;
+    // A timestamp-only edit keeps the bytes but must still force a fresh preview.
+    let root = tempfile::tempdir().unwrap();
+    assert_conflict(root.path(), original, "FILE_CHANGED", |_, path| {
+        File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_times(FileTimes::new().set_modified(SystemTime::now() + Duration::from_secs(300)))
+            .unwrap();
+    });
+    // Equal bytes and equal mtime on a fresh inode: only the file identity changed.
+    let root = tempfile::tempdir().unwrap();
+    assert_conflict(root.path(), original, "FILE_CHANGED", |root, path| {
+        let swap = root.join("TEST_ONLY_swap.json");
+        fs::write(&swap, fs::read(path).unwrap()).unwrap();
+        let mtime = fs::metadata(path).unwrap().modified().unwrap();
+        File::options()
+            .write(true)
+            .open(&swap)
+            .unwrap()
+            .set_times(FileTimes::new().set_modified(mtime))
+            .unwrap();
+        fs::rename(&swap, path).unwrap();
+    });
+    // The final path component becoming a symlink is a reparse conflict.
+    let root = tempfile::tempdir().unwrap();
+    assert_conflict(root.path(), original, "PATH_REPARSE", |root, path| {
+        let stash = root.join("TEST_ONLY_stash.json");
+        fs::rename(path, &stash).unwrap();
+        symlink(&stash, path).unwrap();
+    });
+    // Removing the file after preview reports a conflict, never a silent skip.
+    let root = tempfile::tempdir().unwrap();
+    assert_conflict(root.path(), original, "FILE_MISSING", |_, path| {
+        fs::remove_file(path).unwrap();
+    });
+}
+
+#[test]
+fn hardlink_appearing_after_preview_conflicts_until_removed() {
+    let root = tempfile::tempdir().unwrap();
+    let original = br#"{"key":"TEST_ONLY_OLD"}"#;
+    let (vault, batch, path, target) = fixture(root.path(), original);
+    let mut plan = batch.preview(&vault, &[target]);
+    let id = plan.id;
+    let alias = root.path().join("TEST_ONLY_alias.json");
+    fs::hard_link(&path, &alias).unwrap();
+    let result = batch.apply(&mut plan, id, true).unwrap().remove(0);
+    assert_eq!(result.outcome, Outcome::Conflict);
+    assert_eq!(result.code, Some("PATH_HARDLINK"));
+    assert_eq!(fs::read(&path).unwrap(), original);
+    assert!(batch.backups().unwrap().is_empty());
+    // Once the extra link is gone a fresh preview applies normally.
+    fs::remove_file(alias).unwrap();
+    let mut plan = batch.preview(&vault, &[target]);
+    let id = plan.id;
+    assert_eq!(
+        batch.apply(&mut plan, id, true).unwrap().remove(0).outcome,
+        Outcome::Applied
+    );
+}
+
+#[test]
+fn equal_and_protected_values_skip_write_and_backup_but_stale_still_conflicts() {
+    for input in [
+        br#"{"key":"TEST_ONLY_NEW"}"#.as_slice(),
+        br#"{"key":"${input:TEST_ONLY_VARIABLE}"}"#.as_slice(),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let (vault, batch, path, target) = fixture(root.path(), input);
+        let mut plan = batch.preview(&vault, &[target]);
+        assert!(!plan.view().files[0].changed);
+        let id = plan.id;
+        assert_eq!(
+            batch.apply(&mut plan, id, true).unwrap().remove(0).outcome,
+            Outcome::Skipped
+        );
+        assert_eq!(fs::read(&path).unwrap(), input);
+        assert!(batch.backups().unwrap().is_empty());
+        let mut stale = batch.preview(&vault, &[target]);
+        let id = stale.id;
+        fs::write(&path, [input, b"\n// TEST_ONLY_LATER"].concat()).unwrap();
+        assert_eq!(
+            batch.apply(&mut stale, id, true).unwrap().remove(0).outcome,
+            Outcome::Conflict
+        );
+    }
+}
+
+#[test]
+fn vault_snapshot_and_batch_preview_views_stay_fully_masked() {
+    let root = tempfile::tempdir().unwrap();
+    let (vault, batch, _path, target) = fixture(root.path(), br#"{"key":"TEST_ONLY_OLD"}"#);
+    // Key names stay visible for selection; the stored secret never does.
+    let snapshot = serde_json::to_string(&vault.snapshot()).unwrap();
+    assert!(snapshot.contains("TEST_ONLY_key") && snapshot.contains(MASK));
+    assert!(!snapshot.contains("TEST_ONLY_NEW"));
+    let mut plan = batch.preview(&vault, &[target]);
+    let view = serde_json::to_string(&plan.view()).unwrap();
+    assert!(view.contains(MASK) && view.contains("/key"));
+    assert!(!view.contains("TEST_ONLY_OLD") && !view.contains("TEST_ONLY_NEW"));
+    plan.cancel();
 }

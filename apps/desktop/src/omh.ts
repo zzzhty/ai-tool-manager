@@ -2,7 +2,7 @@ import { displayDate } from './safety';
 import type { DesktopApi, OmhStatusView, OmhCapabilities, OmhOperation } from './types';
 
 /** Only this safe vocabulary is ever rendered; everything else stays 未知. */
-const managerStates: Record<string, string> = { ready: '记录就绪', installing: '安装中', broken: '已损坏', missing: '记录缺失' };
+const managerStates: Record<string, string> = { ready: '记录就绪', degraded: '记录降级', installing: '安装中', broken: '已损坏', missing: '记录缺失' };
 const sources: Record<string, string> = { recorded: '记录态快照 · 非实时', synthetic_demo: 'TEST_ONLY 演示数据' };
 
 const node = (tag: string, text: string, className?: string): HTMLElement => {

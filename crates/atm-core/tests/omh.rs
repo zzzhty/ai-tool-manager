@@ -150,11 +150,18 @@ fn parse_skips_non_string_and_duplicate_desired_names() {
 #[test]
 fn parse_maps_active_operation_and_worktree_state_without_invention() {
     let mut status = recorded_status();
-    status["operation"] = json!({"kind": "update", "stage": "refresh"});
+    // Actual OMH manager_state.begin_operation shape, with synthetic values.
+    status["operation"] = json!({"command": "update", "phase": "prepared",
+        "operationId": "TEST_ONLY_operation", "schemaVersion": 1});
     status["worktreeClean"] = json!(true);
     let snapshot = omh::parse(&status, "/TEST_ONLY", "recorded").unwrap();
     assert_eq!(snapshot.operation_kind.as_deref(), Some("update"));
     assert_eq!(snapshot.worktree_clean, Some(true));
+    for operation in [json!({"kind": "repair"}), json!({"operation": "repair"})] {
+        status["operation"] = operation;
+        let snapshot = omh::parse(&status, "/TEST_ONLY", "recorded").unwrap();
+        assert_eq!(snapshot.operation_kind.as_deref(), Some("repair"));
+    }
     status["operation"] = json!({"unexpected": "shape"});
     let snapshot = omh::parse(&status, "/TEST_ONLY", "recorded").unwrap();
     assert_eq!(snapshot.operation_kind.as_deref(), Some("unknown"));

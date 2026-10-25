@@ -55,6 +55,106 @@ fn zcode_root(fixture: &Fixture) -> PathBuf {
 }
 
 #[test]
+fn explicit_roots_ignore_inherited_overrides() {
+    const CHILD: &str = "ATM_TEST_ROOT_ISOLATION_CHILD";
+    if std::env::var_os(CHILD).is_some() {
+        let f = fixture();
+        let source = write_skill(f.sources.path(), "src");
+        let service = service(&f);
+        let inventory = service.inventory().unwrap();
+        assert!(inventory
+            .roots
+            .iter()
+            .all(|root| Path::new(&root.path).starts_with(f.home.path())));
+        service.install(&source, "claude-code", "local").unwrap();
+        service.copy_to("claude-code", "local", "copilot").unwrap();
+        let trash = service.uninstall("copilot", "local").unwrap();
+        service.restore(&trash).unwrap();
+        assert!(f
+            .home
+            .path()
+            .join(".copilot/skills/local/SKILL.md")
+            .is_file());
+        f.registry
+            .publish(
+                &source,
+                "projected",
+                &["claude-code".into(), "copilot".into()],
+            )
+            .unwrap();
+        assert!(f
+            .registry
+            .refresh(None, false)
+            .unwrap()
+            .iter()
+            .all(|item| item.status == "ok"));
+        f.registry.unpublish("projected", true).unwrap();
+        // The application's environment-based constructor must still honor overrides.
+        let live = SkillsService::from_environment()
+            .unwrap()
+            .inventory()
+            .unwrap();
+        for (id, key) in [
+            ("copilot", "COPILOT_HOME"),
+            ("claude-code", "CLAUDE_CONFIG_DIR"),
+        ] {
+            assert_eq!(
+                Path::new(&live.roots.iter().find(|r| r.id == id).unwrap().path),
+                PathBuf::from(std::env::var_os(key).unwrap()).join("skills")
+            );
+        }
+        return;
+    }
+    // Set overrides only in a child process; Rust's parallel tests share the parent environment.
+    let outside = tempfile::tempdir().unwrap();
+    let child_home = tempfile::tempdir().unwrap();
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    command
+        .args([
+            "explicit_roots_ignore_inherited_overrides",
+            "--exact",
+            "--nocapture",
+        ])
+        .env(CHILD, "1")
+        .env("HOME", child_home.path())
+        .env("USERPROFILE", child_home.path())
+        .env("XDG_DATA_HOME", child_home.path().join("data"))
+        .env("LOCALAPPDATA", child_home.path().join("data"))
+        .env("OH_MY_HARNESS_HOME", child_home.path().join("omh"))
+        .env("LKM_SKILLS_LIVE", "0")
+        .env("LKM_OMH_LIVE", "0")
+        .env_remove("ATM_TEST_OMH_CHECKOUT");
+    for key in [
+        "CLAUDE_CONFIG_DIR",
+        "COPILOT_HOME",
+        "CODEX_HOME",
+        "GEMINI_CLI_HOME",
+        "OPENCLAW_STATE_DIR",
+        "PI_CODING_AGENT_DIR",
+    ] {
+        let path = outside.path().join(key);
+        fs::create_dir(&path).unwrap();
+        fs::write(path.join("sentinel"), "TEST_ONLY untouched").unwrap();
+        command.env(key, path);
+    }
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    for entry in fs::read_dir(outside.path()).unwrap() {
+        let path = entry.unwrap().path();
+        assert_eq!(fs::read_dir(&path).unwrap().count(), 1);
+        assert_eq!(
+            fs::read_to_string(path.join("sentinel")).unwrap(),
+            "TEST_ONLY untouched"
+        );
+    }
+}
+
+#[test]
 fn publish_adopts_source_and_projects_links_that_inventory_classifies() {
     let f = fixture();
     let source = write_skill(f.sources.path(), "my-source");
@@ -90,6 +190,170 @@ fn publish_adopts_source_and_projects_links_that_inventory_classifies() {
         atm_core::projection::materialization_mode()
     );
     assert_eq!(records[0].projections.len(), 2);
+}
+
+#[cfg(unix)]
+#[test]
+fn publish_rejects_unauditable_sources_and_leaves_nothing_adopted() {
+    let f = fixture();
+    // No SKILL.md.
+    let plain = f.sources.path().join("plain");
+    fs::create_dir_all(&plain).unwrap();
+    assert_eq!(
+        f.registry
+            .publish(&plain, "a", &["zcode".into()])
+            .unwrap_err()
+            .code,
+        "SKILLS_SOURCE"
+    );
+    // A nested link fails the audit and rolls back the adoption.
+    let linked = write_skill(f.sources.path(), "linked");
+    symlink(&plain, linked.join("nested")).unwrap();
+    assert_eq!(
+        f.registry
+            .publish(&linked, "b", &["zcode".into()])
+            .unwrap_err()
+            .code,
+        "SKILLS_UNAUDITABLE"
+    );
+    assert!(f.registry.list().unwrap().is_empty());
+    for name in ["a", "b"] {
+        assert!(!f.registry.sources_root().join(name).exists());
+    }
+    assert!(!zcode_root(&f).exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn project_appends_rolls_back_intent_and_refuses_repetition() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = fixture();
+    let source = write_skill(f.sources.path(), "src");
+    f.registry
+        .publish(&source, "extra", &["zcode".into()])
+        .unwrap();
+    // Repeating the same root is refused without touching the registry.
+    assert_eq!(
+        f.registry.project("extra", "zcode").unwrap_err().code,
+        "SKILLS_TAKEN"
+    );
+    assert_eq!(f.registry.list().unwrap()[0].projections.len(), 1);
+    // A root whose parent cannot host the link rolls the persisted intent back.
+    let copilot = f.home.path().join(".copilot");
+    fs::create_dir(&copilot).unwrap();
+    fs::set_permissions(&copilot, fs::Permissions::from_mode(0o555)).unwrap();
+    let error = f.registry.project("extra", "copilot").unwrap_err();
+    fs::set_permissions(&copilot, fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(error.code, "ACCESS_DENIED");
+    let records = f.registry.list().unwrap();
+    assert_eq!(records[0].projections.len(), 1);
+    assert_eq!(records[0].projections[0].root_id, "zcode");
+    // The healthy projection and canonical copy survive the rollback.
+    assert!(zcode_root(&f).join("extra/SKILL.md").is_file());
+    assert!(f.registry.sources_root().join("extra/SKILL.md").is_file());
+    // Once the root is usable again the append succeeds.
+    assert_eq!(
+        f.registry.project("extra", "copilot").unwrap(),
+        "copilot/extra"
+    );
+    assert!(f
+        .registry
+        .check(None)
+        .unwrap()
+        .iter()
+        .all(|item| item.status == "ok"));
+}
+
+#[cfg(unix)]
+#[test]
+fn unproject_check_and_refresh_refuse_foreign_occupied_projection_slots() {
+    let f = fixture();
+    let source = write_skill(f.sources.path(), "src");
+    f.registry
+        .publish(&source, "owned", &["zcode".into()])
+        .unwrap();
+    let target = zcode_root(&f).join("owned");
+    // A plain directory in the registered slot is reported and never replaced.
+    fs::remove_file(&target).unwrap();
+    fs::create_dir(&target).unwrap();
+    fs::write(target.join("user-edit"), b"TEST_ONLY").unwrap();
+    assert_eq!(
+        f.registry.check(Some("owned")).unwrap()[0].status,
+        "modified_copy"
+    );
+    assert_eq!(
+        f.registry
+            .unproject("owned", "zcode", true)
+            .unwrap_err()
+            .code,
+        "SKILLS_TAKEN"
+    );
+    assert_eq!(
+        f.registry.refresh(Some("owned"), true).unwrap_err().code,
+        "SKILLS_TAKEN"
+    );
+    assert_eq!(fs::read(target.join("user-edit")).unwrap(), b"TEST_ONLY");
+    // A foreign link counts as a broken projection but is still never removed.
+    fs::remove_dir_all(&target).unwrap();
+    let foreign = write_skill(f.sources.path(), "foreign-dir");
+    symlink(&foreign, &target).unwrap();
+    assert_eq!(
+        f.registry.check(Some("owned")).unwrap()[0].status,
+        "broken_link"
+    );
+    assert_eq!(
+        f.registry
+            .unproject("owned", "zcode", true)
+            .unwrap_err()
+            .code,
+        "SKILLS_TAKEN"
+    );
+    assert_eq!(
+        f.registry.refresh(Some("owned"), true).unwrap_err().code,
+        "SKILLS_TAKEN"
+    );
+    assert_eq!(fs::read_link(&target).unwrap(), foreign);
+    // The registry and canonical copy stay intact for manual resolution.
+    assert_eq!(f.registry.list().unwrap()[0].projections.len(), 1);
+    assert!(f.registry.sources_root().join("owned/SKILL.md").is_file());
+}
+
+#[test]
+fn unpublish_with_projections_keeps_the_remaining_record_when_one_slot_is_foreign() {
+    let f = fixture();
+    let source = write_skill(f.sources.path(), "src");
+    f.registry
+        .publish(&source, "dual", &["zcode".into(), "copilot".into()])
+        .unwrap();
+    // The second projection's slot is occupied by unrelated content.
+    let occupied = f.home.path().join(".copilot").join("skills").join("dual");
+    // Keep the original directory alive on Windows so its identity cannot be
+    // reused by the foreign directory that takes its place.
+    fs::rename(&occupied, f.home.path().join("displaced-projection")).unwrap();
+    fs::create_dir(&occupied).unwrap();
+    fs::write(occupied.join("keep"), b"TEST_ONLY").unwrap();
+    assert_eq!(
+        f.registry.unpublish("dual", true).unwrap_err().code,
+        if cfg!(windows) {
+            "PROJECTION_OWNERSHIP"
+        } else {
+            "SKILLS_TAKEN"
+        }
+    );
+    // The zcode projection was torn down and unregistered first; the record
+    // keeps exactly the blocked copilot projection with its source intact.
+    let records = f.registry.list().unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].projections.len(), 1);
+    assert_eq!(records[0].projections[0].root_id, "copilot");
+    assert!(!zcode_root(&f).join("dual").exists());
+    assert!(f.registry.sources_root().join("dual/SKILL.md").is_file());
+    assert_eq!(fs::read(occupied.join("keep")).unwrap(), b"TEST_ONLY");
+    // Clearing the foreign entry lets unpublish finish cleanly.
+    fs::remove_dir_all(&occupied).unwrap();
+    f.registry.unpublish("dual", true).unwrap();
+    assert!(f.registry.list().unwrap().is_empty());
+    assert!(!f.registry.sources_root().join("dual").exists());
 }
 
 #[test]

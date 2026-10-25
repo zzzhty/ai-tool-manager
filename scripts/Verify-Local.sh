@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Synthetic tests only; no Home Codex CLI or provider-account queries.
 set -euo pipefail
+# This entry point is synthetic even if the caller enabled separate live tests.
+export LKM_SKILLS_LIVE=0 LKM_OMH_LIVE=0
+unset ATM_TEST_OMH_CHECKOUT
 lkm_repo="$(cd -- "$(dirname -- "$0")/.." && pwd)"
 cd "$lkm_repo"
 lkm_cache="$lkm_repo/.validation-cache"

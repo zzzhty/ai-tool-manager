@@ -70,10 +70,11 @@ it('protocol failures surface through the safe error vocabulary only', async () 
 });
 
 it('an in-flight operation is reported as a record, never as a failure', async () => {
-  const active = status(); active.operationKind = 'update';
+  const active = status(); active.operationKind = 'update'; active.managerStatus = 'degraded';
   vi.mocked(api.omhStatus).mockResolvedValue(active);
   await query();
   expect(get('omh-status-result').textContent).toContain('update');
+  expect(get('omh-status-result').textContent).toContain('记录降级');
   expect(get('omh-status-result').textContent).not.toContain('失败');
 });
 

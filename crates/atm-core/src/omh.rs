@@ -115,6 +115,7 @@ fn operation_kind(value: &Value) -> Option<String> {
         value @ Value::Object(_) => Some(
             string_field(value, "kind")
                 .or_else(|| string_field(value, "operation"))
+                .or_else(|| string_field(value, "command"))
                 .unwrap_or_else(|| "unknown".into()),
         ),
         _ => Some("unknown".into()),

@@ -77,6 +77,24 @@ fn pointer_arrays_escaped_names_and_string_escaping() {
     assert!(jsonc::edit(br#"{"a":["x"]}"#, &[request("/a/00")]).is_err());
 }
 #[test]
+fn plain_and_escaped_string_bodies_preserve_json_semantics() {
+    let source = r#"{"escaped":"caf\u00e9 \u4e2d\u6587 \ud83d\ude00","plain":"café 中文 😀","empty":"","special":"a\tb\n\"\\\/"}"#;
+    let value = jsonc::parse_value(source.as_bytes()).expect("valid mixed document");
+    let expected: serde_json::Value = serde_json::from_str(source).expect("JSON reference");
+    assert_eq!(value, expected);
+    assert_eq!(value["escaped"], value["plain"]);
+    assert_eq!(value["plain"].as_str(), Some("café 中文 😀"));
+    assert_eq!(value["empty"].as_str(), Some(""));
+    assert_eq!(value["special"].as_str(), Some("a\tb\n\"\\/"));
+    // The escape-free path must still reject every raw JSON control byte.
+    for control in 0u8..0x20 {
+        let mut input = br#"{"key":"a"#.to_vec();
+        input.push(control);
+        input.extend_from_slice(br#"b"}"#);
+        assert!(jsonc::parse_value(&input).is_err());
+    }
+}
+#[test]
 fn variable_references_default_to_protected_and_need_explicit_override() {
     for value in [
         "${input:key}",

@@ -159,6 +159,10 @@ impl<'a> Parser<'a> {
             return Err(Self::invalid());
         }
         let bytes = self.text.as_bytes();
+        // An escape-free body already passed every rule the scanner enforces
+        // (no control bytes, UTF-8 text), so its content is exactly the scanned
+        // bytes; only escaped bodies need serde_json to decode the escapes.
+        let mut escaped = false;
         while self.offset < bytes.len() {
             let byte = bytes[self.offset];
             self.offset += 1;
@@ -166,11 +170,18 @@ impl<'a> Parser<'a> {
                 return Err(Self::invalid());
             }
             if byte == b'"' {
-                return serde_json::from_str(&self.text[start..self.offset])
-                    .map(Zeroizing::new)
-                    .map_err(|_| Self::invalid());
+                return if escaped {
+                    serde_json::from_str(&self.text[start..self.offset])
+                        .map(Zeroizing::new)
+                        .map_err(|_| Self::invalid())
+                } else {
+                    Ok(Zeroizing::new(
+                        self.text[start + 1..self.offset - 1].to_owned(),
+                    ))
+                };
             }
             if byte == b'\\' {
+                escaped = true;
                 let escape = *bytes.get(self.offset).ok_or(Self::invalid())?;
                 self.offset += 1;
                 if escape == b'u' {

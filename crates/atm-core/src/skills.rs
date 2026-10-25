@@ -93,8 +93,13 @@ struct RootSpec {
 
 impl RootSpec {
     /// `<base>[/<sub>]/skills` where base is the env override or `<home>/<tail>`.
-    pub(crate) fn resolve(&self, home: &Path) -> PathBuf {
-        let base = match self.env.and_then(std::env::var_os) {
+    pub(crate) fn resolve(&self, home: &Path, inherit_environment: bool) -> PathBuf {
+        let override_path = if inherit_environment {
+            self.env.and_then(std::env::var_os)
+        } else {
+            None
+        };
+        let base = match override_path {
             Some(value) if !value.is_empty() && Path::new(&value).is_absolute() => {
                 PathBuf::from(value)
             }
@@ -418,8 +423,12 @@ pub(crate) fn auditable_source(source: &Path) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn target_root_dir(home: &Path, root_id: &str) -> Result<PathBuf> {
-    let root = root_spec(root_id)?.resolve(home);
+pub(crate) fn target_root_dir(
+    home: &Path,
+    root_id: &str,
+    inherit_environment: bool,
+) -> Result<PathBuf> {
+    let root = root_spec(root_id)?.resolve(home, inherit_environment);
     require_unprotected_skill_path(home, &root)?;
     Ok(root)
 }
@@ -526,15 +535,18 @@ pub struct SkillsService {
     trash_root: PathBuf,
     manager_home: Option<PathBuf>,
     sources_root: Option<PathBuf>,
+    inherit_environment: bool,
 }
 
 impl SkillsService {
+    /// Explicit roots: harness environment overrides are ignored.
     pub fn new(home: PathBuf, trash_root: PathBuf) -> Self {
         Self {
             home,
             trash_root,
             manager_home: None,
             sources_root: None,
+            inherit_environment: false,
         }
     }
 
@@ -558,6 +570,7 @@ impl SkillsService {
         Ok(Self {
             home,
             manager_home: Some(manager_home),
+            inherit_environment: true,
             sources_root: Some(
                 storage::data_directory()?
                     .join("skills-sources")
@@ -599,7 +612,11 @@ impl SkillsService {
 
     fn projection_records(&self) -> Result<Vec<crate::projection::SourceRecord>> {
         match self.sources_root.as_ref().and_then(|root| root.parent()) {
-            Some(root) => crate::projection::ProjectionRegistry::read_records(root, &self.home),
+            Some(root) => crate::projection::ProjectionRegistry::read_records(
+                root,
+                &self.home,
+                self.inherit_environment,
+            ),
             None => Ok(Vec::new()),
         }
     }
@@ -613,7 +630,7 @@ impl SkillsService {
         let records = self.projection_records()?;
         let mut roots = Vec::new();
         for spec in ROOTS {
-            let root_dir = match target_root_dir(&self.home, spec.id) {
+            let root_dir = match target_root_dir(&self.home, spec.id, self.inherit_environment) {
                 Ok(root) => root,
                 Err(error) if error.code == "SKILLS_PROTECTED" => continue,
                 Err(error) => return Err(error),
@@ -706,7 +723,7 @@ impl SkillsService {
     pub fn install(&self, source: &Path, root_id: &str, name: &str) -> Result<String> {
         self.copy_into(
             source,
-            &target_root_dir(&self.home, root_id)?,
+            &target_root_dir(&self.home, root_id, self.inherit_environment)?,
             root_id,
             name,
         )
@@ -715,11 +732,11 @@ impl SkillsService {
     /// Copies an already inventoried skill into another declared root.
     pub fn copy_to(&self, source_root: &str, name: &str, target_root: &str) -> Result<String> {
         checked_name(name)?;
-        let source = target_root_dir(&self.home, source_root)?.join(name);
+        let source = target_root_dir(&self.home, source_root, self.inherit_environment)?.join(name);
         auditable_source(&source)?;
         self.copy_into(
             &source,
-            &target_root_dir(&self.home, target_root)?,
+            &target_root_dir(&self.home, target_root, self.inherit_environment)?,
             target_root,
             name,
         )
@@ -789,7 +806,7 @@ impl SkillsService {
                 "该条目是本管理器的技能投影；请用 atm skills unproject 撤除。",
             ));
         }
-        let target = target_root_dir(&self.home, root_id)?.join(name);
+        let target = target_root_dir(&self.home, root_id, self.inherit_environment)?.join(name);
         require_unprotected_skill_path(&self.home, &target)?;
         if self
             .manager_home
@@ -872,7 +889,7 @@ impl SkillsService {
         let (path, root_id, name) = checked_trash_path(&trash_root, trash_id)?;
         checked_name(&name)?;
         self.reject_registered(&root_id, &name)?;
-        let target = target_root_dir(&self.home, &root_id)?.join(&name);
+        let target = target_root_dir(&self.home, &root_id, self.inherit_environment)?.join(&name);
         if self
             .manager_home
             .as_ref()
@@ -889,7 +906,12 @@ impl SkillsService {
                 "目标根现已存在同名条目；恢复被拒绝，请先处理现有条目。",
             ));
         }
-        fs::create_dir_all(target_root_dir(&self.home, &root_id)?).map_err(Error::io)?;
+        fs::create_dir_all(target_root_dir(
+            &self.home,
+            &root_id,
+            self.inherit_environment,
+        )?)
+        .map_err(Error::io)?;
         fs::rename(&path, &target).map_err(Error::io)?;
         cleanup_trash_record(&path);
         Ok(format!("{root_id}/{name}"))

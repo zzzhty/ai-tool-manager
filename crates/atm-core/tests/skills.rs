@@ -2,6 +2,7 @@
 // Only TEST_ONLY fixtures under temporary roots. No real harness directories,
 // no oh-my-harness installation and no network are touched. Link classification
 // is POSIX symlink semantics; Windows junctions compile via the same code paths.
+use atm_core::projection::ProjectionRegistry;
 use atm_core::skills::{SkillEntryView, SkillsInventoryView, SkillsService};
 use std::fs;
 use std::os::unix::fs::symlink;
@@ -383,6 +384,110 @@ fn live_inventory_against_real_roots_when_explicitly_requested() {
     let service = SkillsService::from_environment().unwrap();
     let inventory = service.inventory().unwrap();
     println!("{}", serde_json::to_string_pretty(&inventory).unwrap());
+}
+
+#[test]
+fn restore_refuses_registered_projection_names_and_recreates_a_missing_root() {
+    let f = fixture();
+    let registry_root = tempfile::tempdir().unwrap();
+    let registry = ProjectionRegistry::at_root(
+        registry_root.path().join("private"),
+        f.home.path().to_path_buf(),
+    )
+    .unwrap();
+    let service = SkillsService::new(f.home.path().to_path_buf(), f.trash.path().join("private"))
+        .with_manager_home(Some(f.home.path().join(".oh-my-harness")))
+        .with_sources_root(Some(registry.sources_root()));
+    let source = write_skill(f.sources.path(), "mine-src", FRONT);
+    service.install(&source, "claude-code", "mine").unwrap();
+    let trash_id = service.uninstall("claude-code", "mine").unwrap();
+    // The same name is now a registered projection; restore must not land on it.
+    registry
+        .publish(&source, "mine", &["claude-code".into()])
+        .unwrap();
+    fs::remove_file(claude_root(&f).join("mine")).unwrap();
+    assert_eq!(
+        service.restore(&trash_id).unwrap_err().code,
+        "SKILLS_PROJECTED"
+    );
+    assert_eq!(service.inventory().unwrap().trash.len(), 1);
+    // Without the registration the restore recreates the deleted root.
+    registry.unproject("mine", "claude-code", false).unwrap();
+    registry.unpublish("mine", false).unwrap();
+    fs::remove_dir_all(f.home.path().join(".claude")).unwrap();
+    assert_eq!(service.restore(&trash_id).unwrap(), "claude-code/mine");
+    assert!(claude_root(&f).join("mine").join("SKILL.md").is_file());
+    assert!(service.inventory().unwrap().trash.is_empty());
+}
+
+#[test]
+fn copy_and_uninstall_reject_projections_broken_links_and_plain_files() {
+    let f = fixture();
+    let registry_root = tempfile::tempdir().unwrap();
+    let registry = ProjectionRegistry::at_root(
+        registry_root.path().join("private"),
+        f.home.path().to_path_buf(),
+    )
+    .unwrap();
+    let service = SkillsService::new(f.home.path().to_path_buf(), f.trash.path().join("private"))
+        .with_manager_home(Some(f.home.path().join(".oh-my-harness")))
+        .with_sources_root(Some(registry.sources_root()));
+    let source = write_skill(f.sources.path(), "src", FRONT);
+    registry
+        .publish(&source, "proj", &["zcode".into()])
+        .unwrap();
+    let root = f.home.path().join(".zcode").join("skills");
+    // A projection link is not an auditable source; POSIX projections have
+    // no cross-root copy path.
+    assert_eq!(
+        service
+            .copy_to("zcode", "proj", "copilot")
+            .unwrap_err()
+            .code,
+        "SKILLS_SOURCE"
+    );
+    assert!(f
+        .home
+        .path()
+        .join(".copilot/skills/proj")
+        .symlink_metadata()
+        .is_err());
+    // Broken foreign links and plain files are never copied or uninstalled.
+    symlink(root.join("nowhere"), root.join("gone")).unwrap();
+    fs::write(root.join("plain.txt"), b"TEST_ONLY").unwrap();
+    assert_eq!(
+        service
+            .copy_to("zcode", "gone", "copilot")
+            .unwrap_err()
+            .code,
+        "SKILLS_SOURCE"
+    );
+    assert_eq!(
+        service.uninstall("zcode", "gone").unwrap_err().code,
+        "SKILLS_FOREIGN_LINK"
+    );
+    assert_eq!(
+        service
+            .copy_to("zcode", "plain.txt", "copilot")
+            .unwrap_err()
+            .code,
+        "SKILLS_SOURCE"
+    );
+    assert_eq!(
+        service.uninstall("zcode", "plain.txt").unwrap_err().code,
+        "SKILLS_MISSING"
+    );
+    assert!(root.join("gone").symlink_metadata().is_ok());
+    assert_eq!(fs::read(root.join("plain.txt")).unwrap(), b"TEST_ONLY");
+    // A real local directory in the same root still copies across roots.
+    write_skill(&root, "real", FRONT);
+    service.copy_to("zcode", "real", "copilot").unwrap();
+    assert!(f
+        .home
+        .path()
+        .join(".copilot/skills/real/SKILL.md")
+        .is_file());
+    assert!(service.inventory().unwrap().trash.is_empty());
 }
 
 #[test]

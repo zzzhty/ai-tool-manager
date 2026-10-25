@@ -21,12 +21,12 @@ OMH 保有状态、收据、分发、修复及事务所有权。统一盘点只�
 内容只读，禁止双重管理或猜测接管。
 
 当前已接入记录态快照与 machine v1 capabilities、诊断和生命周期结果，并提供对应 UI。
-支持 check / doctor，以及能力允许的 install / refresh / remove / repair；明确选择目标、
+支持 check / doctor；生命周期静态允许 install / refresh / remove / update / repair，仍由实际 capabilities 决定可用性。明确选择目标、
 预览确认、执行前重验能力与目标、结束后刷新记录均已实现。未安装时展示不可用；旧 CLI
 保留记录查询但禁用变更；未知健康保持未知，失败或超时不自动重试。实现与验证范围见
 [README](../README.md)、`crates/atm-core/src/omh_machine.rs` 和 `apps/desktop/src/omh.ts`。
 
 ## 后续候选（尚未实施）
 
-显式安装/升级引导仍待独立评估；当前不提供 update / recover 等操作。打开 ATM 或一次普通确认不授权安装、升级、重克隆或更改 PATH。文件替换、
+显式安装/升级引导仍待独立评估；静态 update 入口受能力和确认约束，不构成完整升级引导，recover 不受支持。打开 ATM 或一次普通确认不授权安装、升级、重克隆或更改 PATH。文件替换、
 清空目录、事务恢复等额外风险转终端处理，不自动代答。这些后续候选不扩大当前集成的实现范围。
