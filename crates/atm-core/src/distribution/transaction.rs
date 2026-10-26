@@ -720,13 +720,42 @@ pub fn recover(home: &Path) -> Result<()> {
     fs::remove_file(&path)?;
     sync_directory(path.parent().ok_or_else(conflict)?)
 }
-pub fn apply(home: &Path, changes: Vec<Change>) -> Result<()> {
+fn preflight_journal(home: &Path, journal: &Journal) -> Result<Vec<u8>> {
     if pending(home) {
         return Err(Error::new(
             "HARNESS_RECOVERY_REQUIRED",
             "发现未完成的分发 journal；请先执行 atm harness recover。",
         ));
     }
+    validate_journal(home, journal)?;
+    // Bound serialized bytes before the first journal or target write.
+    let encoded = encode_journal(journal)?;
+    for (index, change) in journal.changes.iter().enumerate() {
+        if snapshot(&change.path)? != change.before {
+            return Err(conflict());
+        }
+        if needs_swap(change) && snapshot(&custody(journal, index)?)?.is_some() {
+            return Err(conflict());
+        }
+    }
+    Ok(encoded)
+}
+
+/// Validate an intended journal, including bounded serialization and exact
+/// current snapshots, without creating a lock, stage, journal or target file.
+pub fn validate_plan(home: &Path, changes: &[Change]) -> Result<()> {
+    let journal = Journal {
+        schema_version: JOURNAL_SCHEMA,
+        product: "atm-harness".into(),
+        transaction_id: uuid::Uuid::new_v4().to_string(),
+        changes: changes.to_vec(),
+        committed: false,
+    };
+    preflight_journal(home, &journal)?;
+    Ok(())
+}
+
+pub fn apply(home: &Path, changes: Vec<Change>) -> Result<()> {
     let mut journal = Journal {
         schema_version: JOURNAL_SCHEMA,
         product: "atm-harness".into(),
@@ -734,17 +763,7 @@ pub fn apply(home: &Path, changes: Vec<Change>) -> Result<()> {
         changes,
         committed: false,
     };
-    validate_journal(home, &journal)?;
-    // Bound serialized bytes before the first journal or target write.
-    let encoded = encode_journal(&journal)?;
-    for (index, change) in journal.changes.iter().enumerate() {
-        if snapshot(&change.path)? != change.before {
-            return Err(conflict());
-        }
-        if needs_swap(change) && snapshot(&custody(&journal, index)?)?.is_some() {
-            return Err(conflict());
-        }
-    }
+    let encoded = preflight_journal(home, &journal)?;
     let path = journal_path(home);
     atomic_write(&path, &encoded)?;
     for (index, change) in journal.changes.iter().enumerate() {

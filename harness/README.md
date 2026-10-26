@@ -94,8 +94,10 @@ Disabling hooks does not delete logs, reports or retained runtime environments.
 
 ## One-time legacy handoff
 
-Normal bootstrap/sync refuse a legacy Python installation. Use `atm harness adopt`
-only for an explicit handoff. The Rust migration validates old state, source and
+Normal bootstrap/sync refuse a legacy Python installation. First run
+`atm harness adopt --dry-run --home /absolute/existing/manager` to review the
+read-only target, ownership, archive and hook-retirement plan. Use `atm harness adopt`
+with the same home only for an explicit handoff. The Rust migration validates old state, source and
 ownership, preserves historical evidence, then replaces the active ownership in a
 journaled transition. It never rewrites user logs or runs the old distributor.
 Unsupported or ambiguous legacy state stops with evidence intact. There is no

@@ -590,7 +590,16 @@ fn service_adopts_codex_shared_config_and_preserves_foreign_values_on_uninstall(
     assert_eq!(status["desiredHarnesses"], json!(["codex"]));
     let config = fs::read_to_string(fixture.target.join("config.toml")).unwrap();
     assert!(config.contains("TEST_ONLY"));
-    assert!(config.contains("cache/content"));
+    let document = config.parse::<toml_edit::Document>().unwrap();
+    let marketplace_source = document["marketplaces"]["atm-harness"]["source"]
+        .as_str()
+        .unwrap();
+    let expected_cache = fixture.home.join("cache").join("content").join(
+        atm_core::distribution::source::load(&source)
+            .unwrap()
+            .identity,
+    );
+    assert_eq!(Path::new(marketplace_source), expected_cache);
     assert_eq!(
         fs::read(old_cache.join("__pycache__/user.pyc")).unwrap(),
         b"retained transient bytes"
@@ -633,4 +642,339 @@ fn git_bound_marketplace_handoff_reports_unsupported_without_retiring_old_owner(
     assert!(fixture.home.join("repo/scripts/engine.py").is_file());
     assert!(!fixture.home.join("state/distribution.json").exists());
     assert!(!fixture.home.join("state/legacy-handoff").exists());
+}
+
+// Exact launcher templates from the supported OMH predecessor. They are inert
+// fixture bytes: no shell/Python launcher is executed by these tests.
+const OMH_POSIX_LAUNCHER: &str = r#"#!/usr/bin/env sh
+set -eu
+bootstrap_python=
+if [ -n "${OH_MY_HARNESS_BOOTSTRAP_PYTHON:-}" ]; then
+    bootstrap_python=$OH_MY_HARNESS_BOOTSTRAP_PYTHON
+    "$bootstrap_python" -c 'import sys; sys.exit(sys.version_info < (3, 11))' || {
+        echo "error: OH_MY_HARNESS_BOOTSTRAP_PYTHON must select Python 3.11 or newer" >&2
+        exit 1
+    }
+else
+    for candidate in python3 python python3.14 python3.13 python3.12 python3.11; do
+        if command -v "$candidate" >/dev/null 2>&1 &&
+           "$candidate" -c 'import sys; sys.exit(sys.version_info < (3, 11))' >/dev/null 2>&1; then
+            bootstrap_python=$(command -v "$candidate")
+            break
+        fi
+    done
+fi
+if [ -z "$bootstrap_python" ]; then
+    echo "error: Python 3.11 or newer not found; set OH_MY_HARNESS_BOOTSTRAP_PYTHON" >&2
+    exit 1
+fi
+omh_command=$0
+case "$omh_command" in
+    */*) ;;
+    *) omh_command=$(command -v "$omh_command") ;;
+esac
+omh_home=$("$bootstrap_python" -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve().parent.parent)' "$omh_command")
+exec "$bootstrap_python" "$omh_home/bootstrap/omh_bootstrap.py" --home "$omh_home" "$@"
+"#;
+const OMH_WINDOWS_LAUNCHER: &str = r#"@echo off
+setlocal DisableDelayedExpansion
+for %%I in ("%~dp0..") do set "OMH_HOME=%%~fI"
+if defined OH_MY_HARNESS_BOOTSTRAP_PYTHON (
+  "%OH_MY_HARNESS_BOOTSTRAP_PYTHON%" -c "import sys; sys.exit(sys.version_info < (3, 11))" >nul 2>nul
+  if errorlevel 1 (
+    echo error: OH_MY_HARNESS_BOOTSTRAP_PYTHON must select Python 3.11 or newer 1>&2
+    exit /b 1
+  )
+  set "OHM_PY=%OH_MY_HARNESS_BOOTSTRAP_PYTHON%"
+  goto :run
+)
+for %%P in (python py python3) do (
+  %%P -c "import sys; sys.exit(sys.version_info < (3, 11))" >nul 2>nul
+  if not errorlevel 1 (
+    set "OHM_PY=%%P"
+    goto :run
+  )
+)
+echo error: Python 3.11 or newer not found; set OH_MY_HARNESS_BOOTSTRAP_PYTHON 1>&2
+exit /b 1
+:run
+(
+"%OHM_PY%" "%OMH_HOME%\bootstrap\omh_bootstrap.py" --home "%OMH_HOME%" %*
+call exit /b %%ERRORLEVEL%%
+)
+"#;
+
+fn fixture_git(repo: &Path, args: &[&str]) -> String {
+    let result = std::process::Command::new("git")
+        .args([
+            "--no-optional-locks",
+            "-c",
+            "core.autocrlf=false",
+            "-c",
+            "core.fsmonitor=false",
+            "-C",
+        ])
+        .arg(repo)
+        .args(args)
+        .env("GIT_AUTHOR_NAME", "TEST_ONLY")
+        .env("GIT_AUTHOR_EMAIL", "fixture@example.invalid")
+        .env("GIT_COMMITTER_NAME", "TEST_ONLY")
+        .env("GIT_COMMITTER_EMAIL", "fixture@example.invalid")
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "Git fixture command {args:?} failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    String::from_utf8(result.stdout).unwrap().trim().into()
+}
+fn convert_to_pinned_omh(fixture: &Fixture) {
+    let repo = fixture.home.join("repo");
+    fs::remove_file(repo.join(".atm-embedded.json")).unwrap();
+    fs::rename(repo.join("scripts/engine.py"), repo.join("scripts/omh.py")).unwrap();
+    fs::rename(
+        repo.join("scripts/atm_bootstrap.py"),
+        repo.join("scripts/omh_bootstrap.py"),
+    )
+    .unwrap();
+    let installer=format!("def posix_launcher(*, home, repo):\n    return r'''{OMH_POSIX_LAUNCHER}'''\n\ndef windows_launcher(*, home, repo):\n    return r'''{OMH_WINDOWS_LAUNCHER}'''.replace(\"\\n\", \"\\r\\n\")\n");
+    write(&repo.join("scripts/install_oh_my_harness.py"), installer);
+    write(
+        &fixture.home.join("bootstrap/omh_bootstrap.py"),
+        fs::read(repo.join("scripts/omh_bootstrap.py")).unwrap(),
+    );
+    for name in ["omh", "oh-my-harness"] {
+        write(&fixture.home.join("bin").join(name), OMH_POSIX_LAUNCHER);
+    }
+    for name in ["omh.cmd", "oh-my-harness.cmd"] {
+        write(
+            &fixture.home.join("bin").join(name),
+            OMH_WINDOWS_LAUNCHER.replace('\n', "\r\n"),
+        );
+    }
+    // All Git writes are confined to this disposable synthetic predecessor. Use
+    // plumbing to create fixture evidence without invoking commit hooks.
+    fixture_git(&repo, &["init", "--quiet", "--object-format=sha1"]);
+    fixture_git(&repo, &["add", "--all"]);
+    let tree = fixture_git(&repo, &["write-tree"]);
+    let revision = fixture_git(
+        &repo,
+        &["commit-tree", &tree, "-m", "TEST_ONLY legacy fixture"],
+    );
+    fixture_git(&repo, &["update-ref", "HEAD", &revision]);
+    fixture_git(
+        &repo,
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://example.invalid/TEST_ONLY/oh-my-harness.git",
+        ],
+    );
+    assert_eq!(
+        fixture_git(&repo, &["status", "--porcelain", "--untracked-files=all"]),
+        ""
+    );
+    let manager_path = fixture.home.join("state/manager.json");
+    let mut manager: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manager_path).unwrap()).unwrap();
+    manager["product"] = json!("oh-my-harness");
+    manager["revision"] = json!(revision);
+    manager["channel"] = json!("main");
+    manager["repository"] = json!("https://example.invalid/TEST_ONLY/oh-my-harness.git");
+    write_json(&manager_path, manager);
+}
+fn snapshot_tree(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+    fn walk(root: &Path, path: &Path, output: &mut BTreeMap<PathBuf, Vec<u8>>) {
+        for entry in fs::read_dir(path).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            let metadata = fs::symlink_metadata(&path).unwrap();
+            let relative = path.strip_prefix(root).unwrap().to_path_buf();
+            if metadata.file_type().is_symlink() {
+                let mut bytes = b"LINK\0".to_vec();
+                bytes.extend_from_slice(
+                    fs::read_link(&path).unwrap().as_os_str().as_encoded_bytes(),
+                );
+                output.insert(relative, bytes);
+            } else if metadata.is_dir() {
+                output.insert(relative, b"DIR".to_vec());
+                walk(root, &path, output);
+            } else {
+                let mut bytes = b"FILE\0".to_vec();
+                bytes.extend(fs::read(path).unwrap());
+                output.insert(relative, bytes);
+            }
+        }
+    }
+    let mut output = BTreeMap::new();
+    walk(root, root, &mut output);
+    output
+}
+#[test]
+fn pinned_omh_source_maps_exact_historical_entrypoints_and_launchers() {
+    let fixture = Fixture::new(false);
+    convert_to_pinned_omh(&fixture);
+    let before = snapshot_tree(&fixture.home);
+    let handoff = inspect(&fixture.home).unwrap().unwrap();
+    assert_eq!(handoff.product, "oh-my-harness");
+    assert!(handoff.source_identity.starts_with("git:"));
+    for path in [
+        "repo/scripts/omh.py",
+        "repo/scripts/install_oh_my_harness.py",
+        "repo/scripts/omh_bootstrap.py",
+        "bootstrap/omh_bootstrap.py",
+        "bin/omh",
+        "bin/oh-my-harness",
+        "bin/omh.cmd",
+        "bin/oh-my-harness.cmd",
+    ] {
+        assert!(
+            handoff
+                .retire
+                .iter()
+                .any(|file| file.path == fixture.home.join(path)),
+            "missing retirement {path}"
+        );
+    }
+    assert_eq!(snapshot_tree(&fixture.home), before);
+    let manager_path = fixture.home.join("state/manager.json");
+    let mut manager: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manager_path).unwrap()).unwrap();
+    manager["product"] = json!("atm-harness");
+    write_json(&manager_path, manager);
+    assert_eq!(
+        inspect(&fixture.home).unwrap_err().code,
+        "HARNESS_LEGACY_INVALID",
+        "wrong product must not fall back to OMH filenames"
+    );
+}
+#[test]
+fn omh_launcher_bootstrap_and_pinned_source_drift_are_preserved_and_rejected() {
+    let fixture = Fixture::new(false);
+    convert_to_pinned_omh(&fixture);
+    let launcher = fixture.home.join("bin/omh");
+    write(&launcher, b"user-edited launcher\n");
+    assert_eq!(
+        inspect(&fixture.home).unwrap_err().code,
+        "HARNESS_LEGACY_CHANGED"
+    );
+    assert_eq!(fs::read(&launcher).unwrap(), b"user-edited launcher\n");
+    write(&launcher, OMH_POSIX_LAUNCHER);
+    let bootstrap = fixture.home.join("bootstrap/omh_bootstrap.py");
+    write(&bootstrap, b"user-edited bootstrap\n");
+    assert_eq!(
+        inspect(&fixture.home).unwrap_err().code,
+        "HARNESS_LEGACY_CHANGED"
+    );
+    assert_eq!(fs::read(&bootstrap).unwrap(), b"user-edited bootstrap\n");
+    write(
+        &bootstrap,
+        fs::read(fixture.home.join("repo/scripts/omh_bootstrap.py")).unwrap(),
+    );
+    let engine = fixture.home.join("repo/scripts/omh.py");
+    write(&engine, b"user-edited engine\n");
+    assert_eq!(
+        inspect(&fixture.home).unwrap_err().code,
+        "HARNESS_LEGACY_CHANGED"
+    );
+    assert_eq!(fs::read(engine).unwrap(), b"user-edited engine\n");
+}
+#[test]
+fn omh_codex_support_uses_its_exact_historical_marker() {
+    let fixture = codex_fixture();
+    write(
+        &fixture.home.join("repo/agents/operating-principles.md"),
+        b"TEST_ONLY support\n",
+    );
+    convert_to_pinned_omh(&fixture);
+    let target = fixture.target.join("agents/operating-principles.md");
+    write(&target,b"# Managed by oh-my-harness scripts/sync_codex_agents.py.\n# Source: agents/operating-principles.md\n# Do not edit this target file directly.\n\nTEST_ONLY support\n");
+    let handoff = inspect(&fixture.home).unwrap().unwrap();
+    let roots = BTreeMap::from([("codex".into(), fixture.target.clone())]);
+    let targets = inspect_targets(&fixture.home, &handoff, &roots).unwrap();
+    assert!(targets.iter().any(|item| item.path == target));
+    write(&target, b"user customized support\n");
+    assert!(inspect_targets(&fixture.home, &handoff, &roots).is_err());
+}
+#[test]
+fn adoption_preview_is_read_only_reports_exact_changes_and_apply_revalidates() {
+    let fixture = Fixture::new(true);
+    convert_to_pinned_omh(&fixture);
+    write(
+        &fixture.target.join("AGENTS.md"),
+        b"# ordinary source instructions\n",
+    );
+    let source = new_source(&fixture);
+    let service = service(&fixture, "zcode");
+    let before = snapshot_tree(fixture._temp.path());
+    let preview = service.preview_adopt(&source).unwrap();
+    assert_eq!(
+        snapshot_tree(fixture._temp.path()),
+        before,
+        "preview must not create cache, lock, journal or state"
+    );
+    assert_eq!(preview["dryRun"], true);
+    assert_eq!(preview["legacyProduct"], "oh-my-harness");
+    assert_eq!(preview["cache"]["action"], "create");
+    assert_eq!(
+        preview["targets"],
+        json!([{"harness":"zcode","root":fixture.target}])
+    );
+    assert_eq!(preview["hooksEnabledAfter"], false);
+    let changes = preview["changes"].as_array().unwrap();
+    let change = changes
+        .iter()
+        .find(|item| item["path"] == json!(fixture.target.join("AGENTS.md")))
+        .unwrap();
+    assert_eq!(change["action"], "replace");
+    assert_eq!(change["before"]["kind"], "file");
+    assert_eq!(
+        change["before"]["sha256"],
+        format!("{:x}", Sha256::digest(b"# ordinary source instructions\n"))
+    );
+    assert_eq!(
+        change["after"]["sha256"],
+        format!("{:x}", Sha256::digest(b"# New Rust-owned instructions\n"))
+    );
+    assert!(!serde_json::to_string(&preview)
+        .unwrap()
+        .contains("New Rust-owned instructions"));
+    write(
+        &fixture.target.join("AGENTS.md"),
+        b"changed after preview\n",
+    );
+    assert_eq!(
+        service.bootstrap(&source, true).unwrap_err().code,
+        "HARNESS_LEGACY_CHANGED"
+    );
+    assert!(!fixture.home.join("cache").exists());
+    assert!(!fixture.home.join("state/distribution.json").exists());
+    assert!(fixture.home.join("repo/scripts/omh.py").exists());
+    write(
+        &fixture.target.join("AGENTS.md"),
+        b"# ordinary source instructions\n",
+    );
+    let status = service.bootstrap(&source, true).unwrap();
+    assert_eq!(status["desiredHarnesses"], json!(["zcode"]));
+    for path in [
+        "repo/scripts/omh.py",
+        "bootstrap/omh_bootstrap.py",
+        "bin/omh",
+        "bin/omh.cmd",
+    ] {
+        assert!(!fixture.home.join(path).exists());
+    }
+}
+#[test]
+fn failed_adoption_preview_preserves_every_file_and_creates_no_lock() {
+    let fixture = Fixture::new(true);
+    let source = new_source(&fixture);
+    write(&fixture.target.join("AGENTS.md"), b"user content\n");
+    let before = snapshot_tree(fixture._temp.path());
+    assert!(service(&fixture, "zcode").preview_adopt(&source).is_err());
+    assert_eq!(snapshot_tree(fixture._temp.path()), before);
+    assert!(!fixture.home.join("state/manager.lock").exists());
+    assert!(!fixture.home.join("cache").exists());
 }

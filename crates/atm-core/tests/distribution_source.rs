@@ -196,11 +196,47 @@ fn duplicate_catalog_names_case_collisions_and_unknown_overlays_fail_closed() {
     );
     write(
         dir.path(),
-        "plugins/maintenance/skills/housekeeping/refs/b.txt",
+        "plugins/maintenance/skills/housekeeping/Refs/b.txt",
         "b",
     );
     update_plugin_identity(dir.path());
-    assert!(source::seal(dir.path()).is_err());
+    source::seal(dir.path()).unwrap();
+    // A case-insensitive filesystem cannot represent two case-colliding
+    // directories. Exercise the portable manifest boundary on every platform.
+    let manifest_path = dir.path().join("distribution-manifest.json");
+    let original = fs::read(&manifest_path).unwrap();
+    let mut manifest: Value = serde_json::from_slice(&original).unwrap();
+    let entry = manifest["files"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|entry| entry["path"] == "plugins/maintenance/skills/housekeeping/Refs/b.txt")
+        .unwrap();
+    entry["path"] = json!("plugins/maintenance/skills/housekeeping/refs/b.txt");
+    fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    assert_eq!(
+        source::load(dir.path()).unwrap_err().code,
+        "HARNESS_SOURCE_INVALID"
+    );
+    fs::write(manifest_path, original).unwrap();
+
+    // Retain source-tree collision coverage wherever the filesystem can create
+    // distinct directories; do not turn a valid Windows/macOS tree into a failure.
+    write(
+        dir.path(),
+        "plugins/maintenance/skills/housekeeping/refs/c.txt",
+        "c",
+    );
+    let names: std::collections::BTreeSet<_> =
+        fs::read_dir(dir.path().join("plugins/maintenance/skills/housekeeping"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+    if names.contains(std::ffi::OsStr::new("Refs")) && names.contains(std::ffi::OsStr::new("refs"))
+    {
+        update_plugin_identity(dir.path());
+        assert!(source::seal(dir.path()).is_err());
+    }
     let dir = fixture();
     json_write(
         dir.path(),

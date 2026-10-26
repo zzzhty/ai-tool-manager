@@ -59,6 +59,7 @@ atm restore/purge skills <TRASH_ID>
 
 # 维护组：缓存、记录态、显式交接与中断恢复
 atm harness bootstrap|sync|status [--home PATH] [--json]
+atm harness adopt [--home PATH] --dry-run
 atm harness adopt [--home PATH]
 atm harness recover [--home PATH]
 atm harness plan install --harness zcode

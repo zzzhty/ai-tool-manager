@@ -12,7 +12,7 @@ from pathlib import Path
 def verify(cli: Path, payload: Path) -> dict:
     result = subprocess.run(
         [str(cli), "harness", "verify-source", "--source", str(payload)],
-        check=True, capture_output=True, text=True, timeout=60,
+        check=True, capture_output=True, text=True, encoding="utf-8", timeout=60,
     )
     return json.loads(result.stdout)
 

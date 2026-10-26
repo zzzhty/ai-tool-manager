@@ -4,6 +4,10 @@ set -euo pipefail
 [[ "$(uname -s)" == Darwin ]] || { echo 'MACOS_VALIDATION=NOT_RUN: requires macOS'; exit 1; }
 atm_repo="$(cd -- "$(dirname -- "$0")/.." && pwd)"
 cd "$atm_repo"
+# macOS exposes /var through a system symlink. Create disposable test roots at
+# the physical location so path-safety checks still reject arbitrary links.
+atm_test_tmp="${TMPDIR:-/tmp}"
+export TMPDIR="$(cd -- "$atm_test_tmp" && pwd -P)"
 export ATM_SKILLS_LIVE=0 ATM_ENGINE_LIVE=0 PYTHONNOUSERSITE=1
 unset ATM_TEST_ENGINE_CHECKOUT PYTHONPATH PYTHONHOME
 unset ATM_HOME CLAUDE_CONFIG_DIR COPILOT_HOME CODEX_HOME

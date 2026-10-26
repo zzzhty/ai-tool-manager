@@ -833,6 +833,29 @@ mod rust_distribution {
     }
 
     #[test]
+    fn adoption_preview_does_not_initialize_an_uninstalled_manager() {
+        let env = Env::new();
+        let source = payload(&env);
+        let home = env.home.path().join("preview manager 测试");
+        let output = native(
+            &env,
+            &[
+                "harness",
+                "adopt",
+                "--dry-run",
+                "--source",
+                source.to_str().unwrap(),
+                "--home",
+                home.to_str().unwrap(),
+            ],
+        );
+        assert_code(&output, 1);
+        assert!(String::from_utf8_lossy(&output.stderr).contains("HARNESS_LEGACY_INVALID"));
+        assert!(!home.exists());
+        assert!(!env.home.path().join(".codex").exists());
+    }
+
+    #[test]
     fn bootstrap_with_explicit_home_does_not_enable_hooks_or_create_shared_venv() {
         let env = Env::new();
         let source = payload(&env);
@@ -897,11 +920,16 @@ mod rust_distribution {
         .unwrap();
         assert_ok(&output);
         let plan: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert!(plan["files"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|path| Path::new(path.as_str().unwrap()).starts_with(&codex)));
+        let physical_parent = codex.parent().unwrap().canonicalize().unwrap();
+        assert!(plan["files"].as_array().unwrap().iter().any(|path| {
+            let path = Path::new(path.as_str().unwrap());
+            let root = path.parent().unwrap();
+            // Windows may expand RUNNER~1 or use a different path prefix.
+            // Compare the existing parent identity and exact requested leaf.
+            path.file_name().unwrap() == "AGENTS.md"
+                && root.file_name() == codex.file_name()
+                && root.parent().unwrap().canonicalize().unwrap() == physical_parent
+        }));
         assert!(!codex.exists());
         assert!(!env.home.path().join(".codex").exists());
     }

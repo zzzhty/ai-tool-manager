@@ -21,6 +21,35 @@ const MAX_FILE: u64 = 32 * 1024 * 1024;
 const MAX_FILES: usize = 100_000;
 const MAX_TREE: usize = 256 * 1024 * 1024;
 
+/// Persisted predecessor identities select one exact historical layout. These
+/// paths are migration evidence, not runtime fallback candidates.
+struct Predecessor {
+    engine: &'static str,
+    installer: &'static str,
+    bootstrap_source: &'static str,
+    bootstrap_target: &'static str,
+    support_marker: &'static str,
+}
+fn predecessor(product: &str) -> Result<Predecessor> {
+    match product {
+        "atm-harness" => Ok(Predecessor {
+            engine: "scripts/engine.py",
+            installer: "scripts/install_engine.py",
+            bootstrap_source: "scripts/atm_bootstrap.py",
+            bootstrap_target: "bootstrap/atm_bootstrap.py",
+            support_marker: "Managed by atm-harness scripts/sync_codex_agents.py.",
+        }),
+        "oh-my-harness" => Ok(Predecessor {
+            engine: "scripts/omh.py",
+            installer: "scripts/install_oh_my_harness.py",
+            bootstrap_source: "scripts/omh_bootstrap.py",
+            bootstrap_target: "bootstrap/omh_bootstrap.py",
+            support_marker: "Managed by oh-my-harness scripts/sync_codex_agents.py.",
+        }),
+        _ => Err(invalid()),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LegacyFile {
@@ -387,7 +416,10 @@ pub fn inspect(home: &Path) -> Result<Option<LegacyHandoff>> {
     let manager_exists = exists(&manager_path)?;
     let desired_exists = exists(&desired_path)?;
     if !manager_exists && !desired_exists {
-        if exists(&initial_path)? || exists(&home.join("repo/scripts/engine.py"))? {
+        if exists(&initial_path)?
+            || exists(&home.join("repo/scripts/engine.py"))?
+            || exists(&home.join("repo/scripts/omh.py"))?
+        {
             return Err(Error::new(
                 "HARNESS_LEGACY_INCOMPLETE",
                 "旧分发缺少完整滚动状态；不能从历史安装收据推断当前所有权。",
@@ -407,6 +439,7 @@ pub fn inspect(home: &Path) -> Result<Option<LegacyHandoff>> {
     let (manager, manager_bytes) = json(&manager_path)?;
     let (desired, desired_bytes) = json(&desired_path)?;
     let old_product = product(&manager)?.to_owned();
+    let layout = predecessor(&old_product)?;
     if manager["schemaVersion"] != SCHEMA
         || manager["status"] != "ready"
         || desired["schemaVersion"] != SCHEMA
@@ -452,7 +485,7 @@ pub fn inspect(home: &Path) -> Result<Option<LegacyHandoff>> {
     let source_files = tree(&repo)?;
     let source_identity = source_identity(&repo, &manager, &source_files)?;
     for name in [
-        "scripts/engine.py",
+        layout.engine,
         "scripts/manager_state.py",
         ".agents/harnesses/registry.json",
     ] {
@@ -545,10 +578,10 @@ pub fn inspect(home: &Path) -> Result<Option<LegacyHandoff>> {
             retire.push(legacy_file(repo.join(relative(path)?), bytes.clone()));
         }
     }
-    let bootstrap = home.join("bootstrap/atm_bootstrap.py");
+    let bootstrap = home.join(layout.bootstrap_target);
     if exists(&bootstrap)? {
         let bytes = read_file(&bootstrap)?;
-        if source_files.get("scripts/atm_bootstrap.py") != Some(&bytes) {
+        if source_files.get(layout.bootstrap_source) != Some(&bytes) {
             return Err(changed());
         }
         retire.push(legacy_file(bootstrap, bytes));
@@ -559,9 +592,7 @@ pub fn inspect(home: &Path) -> Result<Option<LegacyHandoff>> {
             continue;
         }
         let bytes = read_file(&path)?;
-        let source = source_files
-            .get("scripts/install_engine.py")
-            .ok_or_else(invalid)?;
+        let source = source_files.get(layout.installer).ok_or_else(invalid)?;
         if bytes != launcher_from_source(source, name.ends_with(".cmd"))? {
             return Err(changed());
         }
@@ -935,7 +966,7 @@ pub fn inspect_targets(
         if harness == "codex" {
             let support = handoff.repository.join("agents/operating-principles.md");
             if exists(&support)? {
-                let mut text=String::from("# Managed by atm-harness scripts/sync_codex_agents.py.\n# Source: agents/operating-principles.md\n# Do not edit this target file directly.\n\n");
+                let mut text = format!("# {}\n# Source: agents/operating-principles.md\n# Do not edit this target file directly.\n\n", predecessor(&handoff.product)?.support_marker);
                 text.push_str(std::str::from_utf8(&read_file(&support)?).map_err(|_| invalid())?);
                 if !text.ends_with('\n') {
                     text.push('\n');

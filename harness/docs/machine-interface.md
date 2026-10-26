@@ -15,7 +15,8 @@ and hook configuration. The CLI presents the same service through:
 - `atm harness bootstrap|sync|status [--home ABS_PATH]`
 - `atm harness plan <install|refresh|remove|repair> --harness ID[,ID...]`
 - `atm install|update|uninstall|repair skills --harness ID[,ID...] [--dry-run]`
-- `atm harness adopt` and `atm harness recover` for explicit handoff/recovery
+- `atm harness adopt --dry-run` for a read-only handoff plan, `atm harness adopt`
+  and `atm harness recover` for explicit handoff/recovery
 - `atm harness runtime prepare GROUP --python ABS_PATH [--external-venv ABS_PATH] [--offline]`
 - `atm install|uninstall|check hooks --harness codex`
 

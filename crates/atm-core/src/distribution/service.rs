@@ -49,6 +49,12 @@ pub struct Plan {
     #[serde(skip)]
     guards: Vec<Change>,
 }
+struct AdoptionPlan {
+    legacy_product: String,
+    handoff_identity: String,
+    targets: BTreeMap<String, PathBuf>,
+    changes: Vec<Change>,
+}
 #[derive(Clone, Debug)]
 pub struct Service {
     home: PathBuf,
@@ -157,7 +163,7 @@ impl Service {
         }
         Ok(bundle)
     }
-    fn cache_bundle(&self, bundle: &source::Bundle) -> Result<PathBuf> {
+    fn cached_bundle_exists(&self, bundle: &source::Bundle) -> Result<bool> {
         let final_path = self.cache(&bundle.identity);
         transaction::safe_path(&final_path.join("distribution-manifest.json"))?;
         if final_path.exists() {
@@ -168,6 +174,13 @@ impl Service {
             {
                 return Err(invalid());
             }
+            return Ok(true);
+        }
+        Ok(false)
+    }
+    fn cache_bundle(&self, bundle: &source::Bundle) -> Result<PathBuf> {
+        let final_path = self.cache(&bundle.identity);
+        if self.cached_bundle_exists(bundle)? {
             return Ok(final_path);
         }
         let stage = self
@@ -220,6 +233,7 @@ impl Service {
             && (self.home.join("state/manager.json").exists()
                 || self.home.join("state/desired.json").exists()
                 || self.home.join("repo/scripts/engine.py").exists()
+                || self.home.join("repo/scripts/omh.py").exists()
                 || self.home.join("state/install.json").exists())
         {
             if !adopt_legacy {
@@ -766,8 +780,57 @@ impl Service {
         .is_ok();
         Ok(json!({"passed":valid,"enabled":true,"exitCode":if valid{0}else{1}}))
     }
+    /// Read-only adoption preview. A later apply rebuilds this same plan under
+    /// the manager lock; preview does not reserve ownership or promise that
+    /// independently edited targets will still match.
+    pub fn preview_adopt(&self, source_root: &Path) -> Result<Value> {
+        let bundle = source::load(source_root)?;
+        let cached = self.cached_bundle_exists(&bundle)?;
+        let plan = self.build_adoption_plan(&bundle)?;
+        let changes = plan
+            .changes
+            .iter()
+            .map(|change| {
+                Ok(json!({
+                    "path": change.path,
+                    "action": if change.before == change.after { "observe" }
+                        else if change.before.is_none() { "create" }
+                        else if change.after.is_none() { "remove" } else { "replace" },
+                    "before": node_summary(change.before.as_ref())?,
+                    "after": node_summary(change.after.as_ref())?,
+                }))
+            })
+            .collect::<Result<Vec<Value>>>()?;
+        Ok(json!({
+            "operation": "adopt", "dryRun": true, "managerHome": self.home,
+            "legacyProduct": plan.legacy_product, "handoffIdentity": plan.handoff_identity,
+            "sourceIdentity": bundle.identity, "releaseVersion": bundle.release,
+            "targets": plan.targets.into_iter().map(|(harness, root)| json!({"harness":harness,"root":root})).collect::<Vec<_>>(),
+            "cache": {"path": self.cache(&bundle.identity), "action": if cached {"reuse"} else {"create"}, "payloadFiles":bundle.files.len()},
+            "hooksEnabledAfter": false, "changes": changes,
+        }))
+    }
     fn adopt(&self, bundle: &source::Bundle) -> Result<Value> {
-        let handoff = super::legacy::inspect(&self.home)?.ok_or_else(invalid)?;
+        // bootstrap already holds the common predecessor/Rust manager lock.
+        // Build and validate before creating a cache or touching target state.
+        let plan = self.build_adoption_plan(bundle)?;
+        self.cache_bundle(bundle)?;
+        transaction::apply(&self.home, plan.changes)?;
+        self.status()
+    }
+    fn build_adoption_plan(&self, bundle: &source::Bundle) -> Result<AdoptionPlan> {
+        if transaction::pending(&self.home) {
+            return Err(Error::new(
+                "HARNESS_RECOVERY_REQUIRED",
+                "先恢复未完成的 Rust 分发事务。",
+            ));
+        }
+        let handoff = super::legacy::inspect(&self.home)?.ok_or_else(|| {
+            Error::new(
+                "HARNESS_LEGACY_INVALID",
+                "未检测到可验证的旧分发状态；未进行交接。",
+            )
+        })?;
         let mut allowed = BTreeMap::new();
         let mut physical = BTreeSet::new();
         for target in &handoff.desired_harnesses {
@@ -782,7 +845,7 @@ impl Service {
             allowed.insert(id, root);
         }
         let old_targets = super::legacy::inspect_targets(&self.home, &handoff, &allowed)?;
-        let cache = self.cache_bundle(bundle)?;
+        let cache = self.cache(&bundle.identity);
         let mut changes = Vec::new();
         let mut state = State {
             schema_version: 1,
@@ -870,13 +933,11 @@ impl Service {
                     "file" => {
                         let before = Some(Node::File(old.bytes.clone().ok_or_else(invalid)?));
                         let after = remaining.remove(&old.path).map(Node::File);
-                        if before != after {
-                            changes.push(Change {
-                                path: old.path.clone(),
-                                before,
-                                after,
-                            });
-                        }
+                        changes.push(Change {
+                            path: old.path.clone(),
+                            before,
+                            after,
+                        });
                     }
                     "directory" => {
                         for (relative, bytes) in &old.files {
@@ -984,8 +1045,28 @@ impl Service {
             before: None,
             after: Some(Node::File(encode(&state)?)),
         });
-        transaction::apply(&self.home, changes)?;
-        self.status()
+        transaction::validate_plan(&self.home, &changes)?;
+        Ok(AdoptionPlan {
+            legacy_product: handoff.product,
+            handoff_identity: handoff.identity,
+            targets: allowed,
+            changes,
+        })
+    }
+}
+
+fn node_summary(node: Option<&Node>) -> Result<Value> {
+    match node {
+        None => Ok(Value::Null),
+        Some(Node::File(bytes)) => Ok(
+            json!({"kind":"file","sha256":digest(bytes),"bytes":bytes.len(),"hashAlgorithm":"sha256"}),
+        ),
+        Some(Node::Symlink(target)) => Ok(
+            json!({"kind":"symlink","target":target,"sha256":digest(target.to_str().ok_or_else(invalid)?.as_bytes()),"hashAlgorithm":"sha256-utf8-link-v1"}),
+        ),
+        Some(node @ Node::Directory(entries)) => Ok(
+            json!({"kind":"directory","sha256":digest(&encode(node)?),"entries":entries.len(),"hashAlgorithm":"sha256-atm-node-json-v1"}),
+        ),
     }
 }
 /// Local skill tools consult the same receipt authority before mutating copies.

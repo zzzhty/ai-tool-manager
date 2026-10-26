@@ -44,7 +44,7 @@ def verify_runtime_payload(cache: Path, manifest: dict, identity: str, env: dict
         result = subprocess.run(
             [sys.executable, "-S", "-B", str(watcher), "skill", "observe", "--repo-root", str(cache), "--dry-run"],
             input=json.dumps({"hook_event_name": "UserPromptSubmit", "skill_name": name}),
-            cwd=root, env=env, capture_output=True, text=True, timeout=30, check=True,
+            cwd=root, env=env, capture_output=True, text=True, encoding="utf-8", timeout=30, check=True,
         )
         assert json.loads(result.stdout)["skill_attribution"]["primary"]["name"] == "watcher:doc-alignment"
     assert {path.relative_to(root) for path in root.rglob("*")} == before, "read-only payload check wrote files"
@@ -52,12 +52,16 @@ def verify_runtime_payload(cache: Path, manifest: dict, identity: str, env: dict
 
 
 def main():
+    # Native command JSON and CI logs use UTF-8 even with a Windows legacy locale.
+    sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("archive", type=Path)
     parser.add_argument("--cli-only", action="store_true", help="label an explicit synthetic CLI-only archive; no desktop release claim")
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="atm distribution Unicode 测试 ") as temporary:
-        root = Path(temporary)
+        # macOS's default /var temporary path is a system symlink. Keep the
+        # tested payload and manager paths physical without relaxing ownership.
+        root = Path(temporary).resolve()
         extracted = root / "extracted"
         shutil.unpack_archive(args.archive.resolve(), extracted)
         package, = extracted.iterdir()
@@ -77,7 +81,7 @@ def main():
         def run(*arguments, success=True, program=cli):
             print("DISTRIBUTION_STEP=" + program.name + " " + " ".join(arguments), flush=True)
             result = subprocess.run([str(program), *arguments], cwd=root, env=env,
-                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
+                stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8", timeout=120)
             if (result.returncode == 0) != success:
                 raise RuntimeError(f"{arguments}: exit {result.returncode}\n"
                                    f"{result.stdout[-10000:]}\n{result.stderr[-10000:]}")

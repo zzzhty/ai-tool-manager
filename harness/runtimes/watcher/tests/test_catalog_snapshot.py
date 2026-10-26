@@ -53,7 +53,8 @@ class SnapshotTests(unittest.TestCase):
         scripts.mkdir()
         marker = self.root / "unexpected-import"
         (scripts / "repo_skill_catalog.py").write_text(
-            f"from pathlib import Path\nPath({str(marker)!r}).write_text('bad')\nraise RuntimeError('poison installer')\n"
+            f"from pathlib import Path\nPath({str(marker)!r}).write_text('bad')\nraise RuntimeError('poison installer')\n",
+            encoding="utf-8",
         )
         discover_skill_metadata(self.root)
         self.assertFalse(marker.exists())

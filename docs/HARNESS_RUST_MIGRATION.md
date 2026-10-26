@@ -138,3 +138,20 @@ All 66 Watcher tests passed again, and Rust resealed the 179-file/30-skill paylo
 `a5eaf17fea5943034e29733ba5e82616b508a9e879e9c41c27c19176cc461b48`.
 The earlier package hash and source identity above remain evidence for that earlier
 checkpoint; cross-platform CI and deployment must validate the committed identity.
+
+The first native PR run exposed test-environment portability gaps: Windows Unicode
+fixture encoding and short-path comparisons, and macOS's `/var` temporary-directory
+alias. Follow-up checks use explicit UTF-8, physical path identity, and physical
+temporary roots without weakening symlink rejection. Manifest case-collision tests
+run on every filesystem; creating two physical case-colliding directories is tested
+only where the filesystem supports it. Native package JSON capture also uses UTF-8.
+
+Home's recorded predecessor used the distinct `oh-my-harness` entry-point layout.
+Handoff now selects exact engine/installer/bootstrap/support-marker names by recorded
+product, with clean pinned Git evidence and exact launcher bytes. `adopt --dry-run`
+shares the same plan builder and transaction preflight as apply, while creating no
+cache, lock or journal. A later apply rebuilds and revalidates under the manager lock.
+Local validation passed 262 Rust core/CLI tests (one isolated keyring test ignored),
+workspace Clippy, 20 legacy tests, 10 transaction tests, eight source tests and the
+extracted Linux package smoke. A read-only preview of the recorded Home installation
+succeeded; this is not evidence that the live handoff has been applied.

@@ -45,7 +45,7 @@ const USAGE: &str = "用法（动词优先；--harness 选择内置引擎，省�
   atm repair skills --harness <ID>[,<ID>...]             # 修复分发（不改 PATH）
   atm restore skills <TRASH_ID> / purge skills <TRASH_ID>
   atm harness bootstrap|sync [--home PATH]              # 校验并缓存随包内容，无需 Python
-  atm harness adopt [--home PATH]                       # 显式一次性交接旧 Python 状态
+  atm harness adopt [--home PATH] [--dry-run]           # 预览或显式一次性交接旧 Python 状态
   atm harness status|recover [--json] [--home PATH]
   atm harness plan <install|refresh|remove|repair> --harness <ID>[,<ID>...]
   atm harness runtime prepare <GROUP> --python <ABS_PATH> [--external-venv <ABS_PATH>] [--offline]
@@ -513,7 +513,8 @@ fn dispatch_harness(rest: &[String]) -> Result<i32> {
         return print_result(&serde_json::to_value(plan).map_err(|_| usage_error())?);
     }
     let options: &[&str] = match subcommand {
-        "bootstrap" | "sync" | "adopt" => &["--home", "--source", "--json"],
+        "bootstrap" | "sync" => &["--home", "--source", "--json"],
+        "adopt" => &["--home", "--source", "--json", "--dry-run"],
         "status" | "recover" => &["--home", "--json"],
         "verify-source" => &["--source", "--json"],
         _ => {
@@ -535,6 +536,9 @@ fn dispatch_harness(rest: &[String]) -> Result<i32> {
     }
     let service = distribution_service(&parsed)?;
     let value = match subcommand {
+        "adopt" if has_flag(&parsed, "--dry-run") => {
+            service.preview_adopt(&selected_source(&parsed)?)?
+        }
         "bootstrap" | "sync" | "adopt" => {
             service.bootstrap(&selected_source(&parsed)?, subcommand == "adopt")?
         }
