@@ -1073,18 +1073,34 @@ fn node_summary(node: Option<&Node>) -> Result<Value> {
 pub fn owns_path(home: &Path, path: &Path) -> bool {
     let bytes = match fs::read(home.join("state/distribution.json")) {
         Ok(v) => v,
-        Err(_) => return false,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return false,
+        Err(_) => return true,
     };
     let state: State = match serde_json::from_slice(&bytes) {
         Ok(v) => v,
         Err(_) => return true,
     };
+    // Resolve platform aliases in the parent while retaining the leaf itself:
+    // a user-replaced skill symlink still belongs to its recorded location.
+    let physical = match (path.parent(), path.file_name()) {
+        (Some(parent), Some(leaf)) => physical_path(parent).map(|parent| parent.join(leaf)),
+        _ => physical_path(path),
+    };
+    let Ok(physical) = physical else {
+        return true;
+    };
+    let candidates = [physical_key(path), physical_key(&physical)];
     state.receipts.values().any(|r| {
         r.files
             .keys()
             .chain(r.shared.keys())
             .chain(r.empty_directories.iter())
-            .any(|p| p == path || p.starts_with(path))
+            .any(|p| {
+                let key = physical_key(p);
+                candidates
+                    .iter()
+                    .any(|candidate| Path::new(&key).starts_with(Path::new(candidate)))
+            })
     })
 }
 

@@ -303,6 +303,24 @@ fn held_native_lock_fails_without_changing_client_files() {
     service.execute("install", &targets()).unwrap();
 }
 #[test]
+#[cfg(windows)]
+fn local_ownership_guard_recognizes_verbatim_and_case_path_aliases() {
+    let content = fixture();
+    let (_temp, service, home, skills) = environment();
+    service.bootstrap(content.path(), false).unwrap();
+    service.execute("install", &targets()).unwrap();
+    let owned = skills.join("housekeeping");
+    let verbatim = owned.canonicalize().unwrap();
+    assert!(atm_core::distribution::owns_path(&home, &verbatim));
+    let case_alias = owned.parent().unwrap().join("HOUSEKEEPING");
+    assert!(atm_core::distribution::owns_path(&home, &case_alias));
+    assert!(!atm_core::distribution::owns_path(
+        &home,
+        &skills.join("unrelated-user-skill")
+    ));
+}
+
+#[test]
 fn local_skill_commands_cannot_take_over_distribution_owned_plain_copies() {
     let content = fixture();
     let (temp, service, home, skills) = environment();

@@ -387,10 +387,19 @@ fn hook_handoff_disables_only_exact_old_groups_and_preserves_user_entries() {
     #[cfg(windows)]
     let command = format!(
         "\"{}\" -B \"{}\" skill observe --repo-root \"{}\"",
-        fixture.home.join("venv/Scripts/python.exe").display(),
         fixture
             .home
-            .join("repo/plugins/watcher/scripts/watcher")
+            .join("venv")
+            .join("Scripts")
+            .join("python.exe")
+            .display(),
+        fixture
+            .home
+            .join("repo")
+            .join("plugins")
+            .join("watcher")
+            .join("scripts")
+            .join("watcher")
             .display(),
         fixture.home.join("repo").display()
     );
@@ -977,4 +986,57 @@ fn failed_adoption_preview_preserves_every_file_and_creates_no_lock() {
     assert_eq!(snapshot_tree(fixture._temp.path()), before);
     assert!(!fixture.home.join("state/manager.lock").exists());
     assert!(!fixture.home.join("cache").exists());
+}
+
+#[cfg(windows)]
+#[test]
+fn legacy_roots_bind_to_the_same_physical_directory_and_emit_caller_paths() {
+    let fixture = codex_fixture();
+    let handoff = inspect(&fixture.home).unwrap().unwrap();
+    // canonicalize expands a runner's possible 8.3 alias and produces the
+    // extended Windows prefix. Neither spelling establishes a second owner.
+    let allowed_root = fixture.target.canonicalize().unwrap();
+    let roots = BTreeMap::from([("codex".into(), allowed_root.clone())]);
+    let targets = inspect_targets(&fixture.home, &handoff, &roots).unwrap();
+    assert!(!targets.is_empty());
+    assert!(targets
+        .iter()
+        .all(|item| item.path.starts_with(&allowed_root)));
+    let evidence = atm_core::distribution::legacy::codex_evidence(&handoff, &allowed_root)
+        .unwrap()
+        .unwrap();
+    assert_eq!(evidence.config_path, allowed_root.join("config.toml"));
+    let wrong = fixture._temp.path().join("unrelated physical root");
+    fs::create_dir_all(&wrong).unwrap();
+    assert!(inspect_targets(
+        &fixture.home,
+        &handoff,
+        &BTreeMap::from([("codex".into(), wrong.clone())])
+    )
+    .is_err());
+    assert!(atm_core::distribution::legacy::codex_evidence(&handoff, &wrong).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn physical_root_binding_still_rejects_a_linked_receipt_root() {
+    use std::os::unix::fs::symlink;
+    let fixture = Fixture::new(true);
+    write(
+        &fixture.target.join("AGENTS.md"),
+        b"# ordinary source instructions\n",
+    );
+    let alias = fixture._temp.path().join("linked root");
+    symlink(&fixture.target, &alias).unwrap();
+    let receipt_path = fixture.home.join("state/harnesses/zcode.json");
+    let mut receipt: serde_json::Value =
+        serde_json::from_slice(&fs::read(&receipt_path).unwrap()).unwrap();
+    receipt["root"] = json!(alias);
+    write_json(&receipt_path, receipt);
+    let handoff = inspect(&fixture.home).unwrap().unwrap();
+    assert!(inspect_targets(&fixture.home, &handoff, &fixture.roots()).is_err());
+    assert_eq!(
+        fs::read(fixture.target.join("AGENTS.md")).unwrap(),
+        b"# ordinary source instructions\n"
+    );
 }

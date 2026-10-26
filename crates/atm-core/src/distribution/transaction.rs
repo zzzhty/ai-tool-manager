@@ -202,6 +202,16 @@ fn sync_directory(path: &Path) -> Result<()> {
     }
     Ok(())
 }
+#[cfg(windows)]
+fn native_path(path: &Path) -> Result<PathBuf> {
+    // std::fs supplies the extended DOS/UNC prefix required by Win32 for long
+    // paths. Resolve only the existing parent: the leaf can itself be a link
+    // being moved, and resolving that leaf would mutate its destination.
+    let parent = path.parent().ok_or_else(conflict)?;
+    let leaf = path.file_name().ok_or_else(conflict)?;
+    Ok(fs::canonicalize(parent)?.join(leaf))
+}
+
 /// Rename without replacing a newly appeared destination. Unsupported native
 /// operations fail closed; there is no check-then-overwrite fallback.
 fn rename_exclusive(from: &Path, to: &Path) -> Result<()> {
@@ -234,8 +244,16 @@ fn rename_exclusive(from: &Path, to: &Path) -> Result<()> {
         extern "system" {
             fn MoveFileExW(from: *const u16, to: *const u16, flags: u32) -> i32;
         }
-        let from: Vec<u16> = from.as_os_str().encode_wide().chain(Some(0)).collect();
-        let to: Vec<u16> = to.as_os_str().encode_wide().chain(Some(0)).collect();
+        let from: Vec<u16> = native_path(from)?
+            .as_os_str()
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        let to: Vec<u16> = native_path(to)?
+            .as_os_str()
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
         if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), 0) } == 0 {
             return Err(io::Error::last_os_error().into());
         }
@@ -276,7 +294,7 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
         #[cfg(windows)]
         {
             if exists {
-                crate::windows::replace(&temporary, path)?;
+                crate::windows::replace(&native_path(&temporary)?, &native_path(path)?)?;
             } else {
                 rename_exclusive(&temporary, path)?;
             }
@@ -826,6 +844,34 @@ mod tests {
         .unwrap();
         root
     }
+    #[test]
+    #[cfg(windows)]
+    fn native_file_and_directory_operations_support_long_unicode_paths() {
+        use std::os::windows::ffi::OsStrExt;
+        let temp = tempfile::tempdir().unwrap();
+        let mut parent = temp.path().to_path_buf();
+        for index in 0..5 {
+            parent.push(format!("{index}-{}", "payload-path-".repeat(4)));
+        }
+        fs::create_dir_all(&parent).unwrap();
+        let path = parent.join("技能 file.txt");
+        assert!(path.as_os_str().encode_wide().count() > 260);
+        atomic_write(&path, b"first").unwrap();
+        atomic_write(&path, b"replacement").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"replacement");
+        let collision = parent.join("existing.txt");
+        fs::write(&collision, b"user").unwrap();
+        assert!(rename_exclusive(&path, &collision).is_err());
+        assert_eq!(fs::read(&collision).unwrap(), b"user");
+        assert_eq!(fs::read(&path).unwrap(), b"replacement");
+        let directory = parent.join("技能 directory");
+        fs::create_dir(&directory).unwrap();
+        fs::write(directory.join("content"), b"payload").unwrap();
+        let moved = parent.join("moved directory");
+        rename_exclusive(&directory, &moved).unwrap();
+        assert_eq!(fs::read(moved.join("content")).unwrap(), b"payload");
+    }
+
     #[test]
     fn lock_conflicts_and_file_recovery() {
         let temp = tempfile::tempdir().unwrap();

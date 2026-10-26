@@ -165,6 +165,31 @@ fn ordinary_ancestors(path: &Path) -> Result<()> {
     }
     Ok(())
 }
+/// Resolve identity only after proving both spellings have ordinary ancestors.
+/// Windows short names and extended prefixes may identify the same directory;
+/// a symlink/junction is still refused before it can become ownership evidence.
+fn root_identity(path: &Path) -> Result<PathBuf> {
+    ordinary_ancestors(&path.join("ownership-probe"))?;
+    let mut parent = path;
+    let mut missing = Vec::new();
+    while !exists(parent)? {
+        missing.push(parent.file_name().ok_or_else(invalid)?.to_os_string());
+        parent = parent.parent().ok_or_else(invalid)?;
+    }
+    let mut resolved = parent.canonicalize()?;
+    for name in missing.iter().rev() {
+        resolved.push(name);
+    }
+    Ok(resolved)
+}
+fn bind_root<'a>(recorded: &Path, allowed: &'a Path) -> Result<&'a Path> {
+    if root_identity(recorded)? != root_identity(allowed)? {
+        return Err(changed());
+    }
+    // Mutation paths use the caller's independently authorized spelling. Never
+    // return a receipt-supplied path as a new filesystem write authority.
+    Ok(allowed)
+}
 fn read_file(path: &Path) -> Result<Vec<u8>> {
     ordinary_ancestors(path)?;
     let metadata = fs::symlink_metadata(path)?;
@@ -728,9 +753,7 @@ pub fn codex_evidence(handoff: &LegacyHandoff, allowed_root: &Path) -> Result<Op
     let Some(root) = handoff.roots.get("codex") else {
         return Ok(None);
     };
-    if root != allowed_root {
-        return Err(changed());
-    }
+    let root = bind_root(root, allowed_root)?;
     let (marketplace, plugins) = codex_manifest(handoff)?;
     let config_path = root.join("config.toml");
     let config_bytes = read_file(&config_path)?;
@@ -893,11 +916,11 @@ pub fn inspect_targets(
         }
     }
     let mut output = Vec::new();
-    for (harness, root) in &handoff.roots {
-        if allowed_roots.get(harness) != Some(root) {
-            return Err(changed());
-        }
-        ordinary_ancestors(&root.join("ownership-probe"))?;
+    for (harness, recorded_root) in &handoff.roots {
+        let root = bind_root(
+            recorded_root,
+            allowed_roots.get(harness).ok_or_else(changed)?,
+        )?;
         let spec = &registry["harnesses"][harness];
         match spec.pointer("/skills/driver").and_then(Value::as_str) {
             Some("directory-projection") => {
@@ -1037,6 +1060,38 @@ fn predecessor_command(args: &[String], windows: bool) -> String {
         .join(" ")
 }
 
+fn watcher_predecessor_command(repository: &Path, windows: bool) -> Result<String> {
+    let home = repository.parent().ok_or_else(invalid)?;
+    let python = home.join(if windows {
+        "venv/Scripts/python.exe"
+    } else {
+        "venv/bin/python"
+    });
+    // Python pathlib emits native separators even when an input was joined with
+    // a slash-delimited relative string. Rust PathBuf preserves those slashes.
+    // Reproduce the predecessor's exact argv before applying its quoting rule.
+    let path_arg = |path: &Path| -> Result<String> {
+        let text = path.to_str().ok_or_else(invalid)?;
+        Ok(if windows {
+            text.replace('/', "\\")
+        } else {
+            text.to_owned()
+        })
+    };
+    Ok(predecessor_command(
+        &[
+            path_arg(&python)?,
+            "-B".into(),
+            path_arg(&repository.join("plugins/watcher/scripts/watcher"))?,
+            "skill".into(),
+            "observe".into(),
+            "--repo-root".into(),
+            path_arg(repository)?,
+        ],
+        windows,
+    ))
+}
+
 /// Explicit adoption retires proven predecessor hooks, leaving hook execution
 /// disabled until the caller explicitly prepares and enables the new runtime.
 /// A prefix is only an ambiguity detector, never sufficient ownership evidence.
@@ -1044,12 +1099,8 @@ pub fn hook_retirement(
     handoff: &LegacyHandoff,
     allowed_root: &Path,
 ) -> Result<Option<LegacyHookChange>> {
-    if handoff
-        .roots
-        .get("codex")
-        .is_some_and(|root| root != allowed_root)
-    {
-        return Err(changed());
+    if let Some(root) = handoff.roots.get("codex") {
+        bind_root(root, allowed_root)?;
     }
     // Hooks were independently installable; they need not have a skill receipt.
     // The caller supplies the independently selected Codex root in that case.
@@ -1062,28 +1113,7 @@ pub fn hook_retirement(
         return Ok(None);
     };
     let hooks = hooks.as_object_mut().ok_or_else(invalid)?;
-    let home = handoff.repository.parent().ok_or_else(invalid)?;
-    let python = home.join(if cfg!(windows) {
-        "venv/Scripts/python.exe"
-    } else {
-        "venv/bin/python"
-    });
-    let command = predecessor_command(
-        &[
-            python.to_string_lossy().into_owned(),
-            "-B".into(),
-            handoff
-                .repository
-                .join("plugins/watcher/scripts/watcher")
-                .to_string_lossy()
-                .into_owned(),
-            "skill".into(),
-            "observe".into(),
-            "--repo-root".into(),
-            handoff.repository.to_string_lossy().into_owned(),
-        ],
-        cfg!(windows),
-    );
+    let command = watcher_predecessor_command(&handoff.repository, cfg!(windows))?;
     let mut removed = 0;
     let mut empty_events = Vec::new();
     for (event, groups) in hooks.iter_mut() {
@@ -1138,4 +1168,21 @@ pub fn hook_retirement(
         before,
         after,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn windows_hook_command_matches_pathlib_and_list2cmdline_evidence() {
+        // Golden output from the predecessor's PureWindowsPath/list2cmdline
+        // contract, exercised on every host (not only native Windows).
+        let repository = Path::new("C:/Temp").join("管理 Home").join("repo");
+        let expected = r#""C:\Temp\管理 Home\venv\Scripts\python.exe" -B "C:\Temp\管理 Home\repo\plugins\watcher\scripts\watcher" skill observe --repo-root "C:\Temp\管理 Home\repo""#;
+        assert_eq!(
+            watcher_predecessor_command(&repository, true).unwrap(),
+            expected
+        );
+    }
 }
