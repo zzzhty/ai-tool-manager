@@ -6,10 +6,10 @@ on:
   workflow_dispatch:
     inputs:
       validation_scope:
-        description: Validation scope (linux-gui reuses prior successful platform jobs)
+        description: Validation scope (platform scopes reuse prior successful unaffected jobs)
         type: choice
         default: all
-        options: [all, linux-gui]
+        options: [all, linux-gui, windows-distribution]
 run-name: Native validation (${{ github.event_name == 'workflow_dispatch' && inputs.validation_scope || 'all' }})
 permissions:
   contents: read
@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   core:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.validation_scope != 'linux-gui' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.validation_scope == 'all' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -75,7 +75,7 @@ jobs:
         if: always() && steps.format.outcome != 'success'
         run: exit 1
   python-engine:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.validation_scope != 'linux-gui' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.validation_scope == 'all' }}
     strategy:
       fail-fast: false
       matrix:
@@ -116,6 +116,7 @@ jobs:
       - name: Distribution identity ledger check
         run: python scripts/check_plugin_generations.py
   linux-desktop:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.validation_scope != 'windows-distribution' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -312,7 +313,7 @@ jobs:
 
 
   macos-desktop:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.validation_scope != 'linux-gui' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.validation_scope == 'all' }}
     runs-on: macos-15
     timeout-minutes: 40
     env:

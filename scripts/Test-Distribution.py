@@ -8,9 +8,11 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 
 
 def main():
@@ -35,15 +37,39 @@ def main():
                    APPDATA=str(user / "appdata"), LOCALAPPDATA=str(user / "localappdata"),
                    XDG_DATA_HOME=str(user / ".local/share"), XDG_CONFIG_HOME=str(user / ".config"),
                    PYTHONNOUSERSITE="1", PYTHONDONTWRITEBYTECODE="1", PYTHONUTF8="1",
-                   PYTHONIOENCODING="utf-8", PIP_DISABLE_PIP_VERSION_CHECK="1")
+                   PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1", PIP_DISABLE_PIP_VERSION_CHECK="1")
         # Exercise automatic Python discovery, not ATM_BOOTSTRAP_PYTHON.
         env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", "")
 
         def run(*arguments, success=True):
-            result = subprocess.run([str(cli), *arguments], cwd=root, env=env,
-                                    input="", encoding="utf-8", errors="replace", capture_output=True, timeout=240)
-            if (result.returncode == 0) != success:
-                raise RuntimeError(f"{arguments}: exit {result.returncode}\n{result.stdout}\n{result.stderr}")
+            started = time.monotonic()
+            print("DISTRIBUTION_STEP=" + " ".join(arguments), flush=True)
+            # Files avoid a timed-out CLI leaving Python's pipe reader waiting
+            # on inherited handles in an engine/PowerShell grandchild.
+            with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+                process = subprocess.Popen([str(cli), *arguments], cwd=root, env=env,
+                    stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr,
+                    start_new_session=os.name != "nt")
+                timed_out = False
+                try:
+                    code = process.wait(timeout=240)
+                except subprocess.TimeoutExpired:
+                    timed_out = True
+                    if os.name == "nt":
+                        subprocess.run(["taskkill.exe", "/PID", str(process.pid), "/T", "/F"],
+                                       capture_output=True, timeout=30, check=True)
+                    else:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    code = process.wait(timeout=30)
+                stdout.seek(0); stderr.seek(0)
+                result = subprocess.CompletedProcess(process.args, code,
+                    stdout.read().decode("utf-8", errors="replace"),
+                    stderr.read().decode("utf-8", errors="replace"))
+            elapsed = time.monotonic() - started
+            print(f"DISTRIBUTION_STEP_EXIT={code} elapsed={elapsed:.1f}s", flush=True)
+            if timed_out or (result.returncode == 0) != success:
+                raise RuntimeError(f"{arguments}: exit {result.returncode}; timeout={timed_out}\n"
+                                   f"{result.stdout[-10000:]}\n{result.stderr[-10000:]}")
             return result
 
         run("help")
