@@ -927,15 +927,25 @@ fn adoption_preview_is_read_only_reports_exact_changes_and_apply_revalidates() {
     assert_eq!(preview["dryRun"], true);
     assert_eq!(preview["legacyProduct"], "oh-my-harness");
     assert_eq!(preview["cache"]["action"], "create");
+    let targets = preview["targets"].as_array().unwrap();
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0]["harness"], "zcode");
     assert_eq!(
-        preview["targets"],
-        json!([{"harness":"zcode","root":fixture.target}])
+        PathBuf::from(targets[0]["root"].as_str().unwrap())
+            .canonicalize()
+            .unwrap(),
+        fixture.target.canonicalize().unwrap()
     );
     assert_eq!(preview["hooksEnabledAfter"], false);
     let changes = preview["changes"].as_array().unwrap();
     let change = changes
         .iter()
-        .find(|item| item["path"] == json!(fixture.target.join("AGENTS.md")))
+        .find(|item| {
+            PathBuf::from(item["path"].as_str().unwrap())
+                .canonicalize()
+                .ok()
+                == Some(fixture.target.join("AGENTS.md").canonicalize().unwrap())
+        })
         .unwrap();
     assert_eq!(change["action"], "replace");
     assert_eq!(change["before"]["kind"], "file");
