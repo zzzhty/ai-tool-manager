@@ -32,10 +32,16 @@ jobs:
               keep = {'PATH', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP'}
               minimal = {k: v for k, v in os.environ.items() if k.upper() in keep}
               isolated = dict(HOME=str(root), USERPROFILE=str(root), APPDATA=str(root / 'appdata'), LOCALAPPDATA=str(root / 'localappdata'))
-              groups = [('minimal', set()), ('module-path', {'PSMODULEPATH'}), ('system-folders', {'PROGRAMFILES', 'PROGRAMFILES(X86)', 'PROGRAMW6432', 'PROGRAMDATA', 'ALLUSERSPROFILE'}), ('combined', {'PSMODULEPATH', 'PROGRAMFILES', 'PROGRAMFILES(X86)', 'PROGRAMW6432', 'PROGRAMDATA', 'ALLUSERSPROFILE'})]
-              for label, keys in groups:
-                  env = minimal | {k: v for k, v in os.environ.items() if k.upper() in keys} | isolated
-                  for junction in (False, True):
+              profiles = {'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'HOMEDRIVE', 'HOMEPATH'}
+              identity = {'USERNAME', 'USERDOMAIN', 'USERDOMAIN_ROAMINGPROFILE', 'LOGONSERVER'}
+              groups = [
+                  ('inherited', dict(os.environ)),
+                  ('inherited-isolated', dict(os.environ) | isolated),
+                  ('minimal-host-profile', minimal | {k: v for k, v in os.environ.items() if k.upper() in profiles}),
+                  ('minimal-host-identity', minimal | {k: v for k, v in os.environ.items() if k.upper() in identity} | isolated),
+              ]
+              for label, env in groups:
+                  for junction in (False,):
                       destination = root / (label + ' target')
                       destination.mkdir(exist_ok=True)
                       link = root / (label + ' link')
