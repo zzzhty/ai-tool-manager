@@ -1,16 +1,13 @@
-//! `atm` command line: the full local manager for skills and the embedded
-//! harness distribution engine. Verb-first grammar (`atm <verb> <object>`):
-//! `--harness` selects the embedded engine modality, its absence selects local
-//! skill management. No polling and no secret-store access (keys never appear
-//! on this surface); only `atm harness bootstrap/sync` may fetch first-run
-//! Python dependencies, everything else stays offline.
+//! CLI for local skills and Rust-owned harness distribution.
+//! CLI and GUI share `distribution::Service`; only explicitly selected payload
+//! runtimes may execute a declared Python interpreter.
+use atm_core::distribution::{source, Service};
 use atm_core::harness::{self};
 use atm_core::harness_embed;
 use atm_core::projection::{CheckItem, ProjectionRegistry};
 use atm_core::skills::SkillsService;
 use atm_core::{Error, Result};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 fn main() {
     std::process::exit(run());
@@ -47,10 +44,13 @@ const USAGE: &str = "用法（动词优先；--harness 选择内置引擎，省�
   atm update skills --harness <ID>[,<ID>...]             # 重应用内置分发
   atm repair skills --harness <ID>[,<ID>...]             # 修复分发（不改 PATH）
   atm restore skills <TRASH_ID> / purge skills <TRASH_ID>
-  atm harness bootstrap [--home PATH]                    # 物化内置引擎并建 venv（首次联网装依赖）
-  atm harness sync [--home PATH]                         # 升级 ATM 后重物化 / 收编旧安装
-  atm harness status [--json] [--home PATH]
-  atm harness -- <engine-args...>                        # 引擎原始命令逃生口
+  atm harness bootstrap|sync [--home PATH]              # 校验并缓存随包内容，无需 Python
+  atm harness adopt [--home PATH]                       # 显式一次性交接旧 Python 状态
+  atm harness status|recover [--json] [--home PATH]
+  atm harness plan <install|refresh|remove|repair> --harness <ID>[,<ID>...]
+  atm harness runtime prepare <GROUP> --python <ABS_PATH> [--external-venv <ABS_PATH>] [--offline]
+  atm harness verify-source [--source <ABS_PATH>]       # 校验发布内容
+  atm harness -- <known-command> ...                    # 同一 Rust 命令空间；无脚本逃生口
   atm help";
 
 fn dispatch(arguments: &[String]) -> Result<i32> {
@@ -97,7 +97,7 @@ fn dispatch(arguments: &[String]) -> Result<i32> {
 }
 
 // ---------------------------------------------------------------------------
-// Embedded engine and watcher delegation
+// Harness distribution and explicit hook configuration
 // ---------------------------------------------------------------------------
 
 struct Parsed {
@@ -108,7 +108,7 @@ struct Parsed {
 }
 
 /// Strict option parser: unknown or duplicated options and misplaced values
-/// are rejected before any service or child process is touched.
+/// are rejected before any mutating service operation is touched.
 fn parse(rest: &[String], options: &[&'static str]) -> Result<Parsed> {
     let mut parsed = Parsed {
         positionals: Vec::new(),
@@ -136,7 +136,8 @@ fn parse(rest: &[String], options: &[&'static str]) -> Result<Parsed> {
         // Options in this grammar never take values inline; only --harness,
         // --to, --from, --name and --home consume the following token.
         match argument {
-            "--harness" | "--to" | "--from" | "--name" | "--home" => {
+            "--harness" | "--to" | "--from" | "--name" | "--home" | "--source" | "--python"
+            | "--external-venv" => {
                 index += 1;
                 let value = rest.get(index).ok_or_else(usage_error)?;
                 if value.is_empty() || value.starts_with('-') {
@@ -147,6 +148,9 @@ fn parse(rest: &[String], options: &[&'static str]) -> Result<Parsed> {
                     "--to" => "--to",
                     "--from" => "--from",
                     "--home" => "--home",
+                    "--source" => "--source",
+                    "--python" => "--python",
+                    "--external-venv" => "--external-venv",
                     _ => "--name",
                 };
                 parsed.values.push((key, value.clone()));
@@ -184,34 +188,48 @@ fn has_flag(parsed: &Parsed, flag: &str) -> bool {
     parsed.flags.contains(&flag)
 }
 
-fn run_engine(operation: &str, targets: &[String], extra: &[&str]) -> Result<i32> {
-    let home = harness::manager_home_from_environment()?;
-    let mut args: Vec<String> = vec![operation.to_owned()];
-    args.extend(targets.iter().cloned());
-    args.extend(extra.iter().map(|value| (*value).to_owned()));
-    let (python, argv) = harness_embed::harness_invocation(&home, &args)?;
-    spawn_interactive(&python, &argv)
+fn print_result(value: &serde_json::Value) -> Result<i32> {
+    println!(
+        "{}",
+        serde_json::to_string_pretty(value).map_err(|_| usage_error())?
+    );
+    Ok(
+        if value.get("passed").and_then(serde_json::Value::as_bool) == Some(false) {
+            1
+        } else {
+            0
+        },
+    )
 }
 
-/// Interactive passthrough: stdio inherited, the engine owns prompts and
-/// output; its exit code propagates exactly.
-fn spawn_interactive(program: &Path, args: &[String]) -> Result<i32> {
-    let status = Command::new(program)
-        .args(args)
-        .status()
-        .map_err(|_| Error::new("HARNESS_CLI_FAILED", "无法启动 harness 引擎子进程。"))?;
-    Ok(status.code().unwrap_or(1))
+fn run_distribution(operation: &str, targets: &[String], dry_run: bool) -> Result<i32> {
+    let service = Service::from_environment()?;
+    if matches!(operation, "check" | "doctor") {
+        for target in targets {
+            atm_core::tool_catalog::find(target)?;
+        }
+        return print_result(&service.diagnose()?);
+    }
+    let plan = service.plan(operation, targets)?;
+    if dry_run {
+        print_result(&serde_json::to_value(plan).map_err(|_| usage_error())?)
+    } else {
+        print_result(&service.apply(plan)?)
+    }
 }
 
 fn install_skills(rest: &[String]) -> Result<i32> {
-    let parsed = parse(rest, &["--to", "--name", "--harness"])?;
+    let parsed = parse(rest, &["--to", "--name", "--harness", "--dry-run"])?;
     if !parsed.harness.is_empty() {
-        if !parsed.positionals.is_empty() || value_of(&parsed, "--to").is_some() {
+        if !parsed.positionals.is_empty()
+            || value_of(&parsed, "--to").is_some()
+            || value_of(&parsed, "--name").is_some()
+        {
             return Err(usage_error());
         }
-        return run_engine("install", &parsed.harness, &[]);
+        return run_distribution("install", &parsed.harness, has_flag(&parsed, "--dry-run"));
     }
-    if parsed.positionals.len() > 1 {
+    if parsed.positionals.len() > 1 || has_flag(&parsed, "--dry-run") {
         return Err(usage_error());
     }
     let source = parsed.positionals.first().ok_or_else(usage_error)?;
@@ -230,12 +248,15 @@ fn install_skills(rest: &[String]) -> Result<i32> {
 }
 
 fn uninstall_skills(rest: &[String]) -> Result<i32> {
-    let parsed = parse(rest, &["--harness"])?;
+    let parsed = parse(rest, &["--harness", "--dry-run"])?;
     if !parsed.harness.is_empty() {
         if !parsed.positionals.is_empty() {
             return Err(usage_error());
         }
-        return run_engine("remove", &parsed.harness, &[]);
+        return run_distribution("remove", &parsed.harness, has_flag(&parsed, "--dry-run"));
+    }
+    if has_flag(&parsed, "--dry-run") {
+        return Err(usage_error());
     }
     let (root, name) = match parsed.positionals.as_slice() {
         [root, name] => (root.clone(), name.clone()),
@@ -259,35 +280,12 @@ fn hooks_operation(kind: &str, rest: &[String]) -> Result<i32> {
             "hooks 目前仅支持 --harness codex。",
         ));
     }
-    let home = harness::manager_home_from_environment()?;
-    let repo = home.join("repo");
-    let mut args: Vec<String> = Vec::new();
+    let service = Service::from_environment()?;
     match kind {
-        "install" => {
-            args.push("install-hook".into());
-            if !has_flag(&parsed, "--dry-run") {
-                args.push("--apply".into());
-            }
-            let python = home.join(if cfg!(windows) {
-                "venv/Scripts/python.exe"
-            } else {
-                "venv/bin/python"
-            });
-            args.push("--python".into());
-            args.push(python.to_string_lossy().into_owned());
-        }
-        "uninstall" => {
-            args.push("uninstall-hook".into());
-            if !has_flag(&parsed, "--dry-run") {
-                args.push("--apply".into());
-            }
-        }
-        _ => args.push("doctor".into()),
+        "install" => print_result(&service.hooks(true, has_flag(&parsed, "--dry-run"))?),
+        "uninstall" => print_result(&service.hooks(false, has_flag(&parsed, "--dry-run"))?),
+        _ => print_result(&service.check_hooks()?),
     }
-    args.push("--repo-root".into());
-    args.push(repo.to_string_lossy().into_owned());
-    let (python, argv) = harness_embed::watcher_invocation(&home, &args)?;
-    spawn_interactive(&python, &argv)
 }
 
 fn check_skills(rest: &[String]) -> Result<i32> {
@@ -304,7 +302,7 @@ fn check_skills(rest: &[String]) -> Result<i32> {
         } else {
             "check"
         };
-        return run_engine(operation, &parsed.harness, &[]);
+        return run_distribution(operation, &parsed.harness, false);
     }
     if has_flag(&parsed, "--strict") {
         return Err(usage_error());
@@ -328,15 +326,18 @@ fn check_skills(rest: &[String]) -> Result<i32> {
 }
 
 fn update_skills(rest: &[String]) -> Result<i32> {
-    let parsed = parse(rest, &["--force", "--harness"])?;
+    let parsed = parse(rest, &["--force", "--harness", "--dry-run"])?;
     if !parsed.harness.is_empty() {
         if !parsed.positionals.is_empty() {
             return Err(usage_error());
         }
-        return run_engine("refresh", &parsed.harness, &[]);
+        if has_flag(&parsed, "--force") {
+            return Err(usage_error());
+        }
+        return run_distribution("refresh", &parsed.harness, has_flag(&parsed, "--dry-run"));
     }
     let name = parsed.positionals.first().map(String::as_str);
-    if parsed.positionals.len() > 1 {
+    if parsed.positionals.len() > 1 || has_flag(&parsed, "--dry-run") {
         return Err(usage_error());
     }
     let items = registry()?.refresh(name, has_flag(&parsed, "--force"))?;
@@ -345,11 +346,11 @@ fn update_skills(rest: &[String]) -> Result<i32> {
 }
 
 fn repair_skills(rest: &[String]) -> Result<i32> {
-    let parsed = parse(rest, &["--harness"])?;
+    let parsed = parse(rest, &["--harness", "--dry-run"])?;
     if !parsed.positionals.is_empty() || parsed.harness.is_empty() {
         return Err(usage_error());
     }
-    run_engine("repair", &parsed.harness, &["--no-path"])
+    run_distribution("repair", &parsed.harness, has_flag(&parsed, "--dry-run"))
 }
 
 // ---------------------------------------------------------------------------
@@ -460,54 +461,156 @@ fn trash_action(rest: &[String], action: &str) -> Result<i32> {
 // Maintenance group
 // ---------------------------------------------------------------------------
 
-fn dispatch_harness(rest: &[String]) -> Result<i32> {
-    let (subcommand, rest) = match rest.split_first() {
-        Some((subcommand, rest)) => (subcommand.as_str(), rest),
-        None => {
-            println!("用法：atm harness bootstrap|sync|status [--home PATH] 或 atm harness -- <engine-args>");
-            return Ok(0);
-        }
-    };
-    if subcommand == "--" {
-        if rest.is_empty() || rest.iter().any(|arg| arg == "--home") {
-            return Err(usage_error());
-        }
-        // Raw engine passthrough: everything after `--` goes to engine.py verbatim.
-        // The manager home comes from the environment to keep one --home source.
-        let home = harness::manager_home_from_environment()?;
-        let (python, argv) = harness_embed::harness_invocation(&home, rest)?;
-        return spawn_interactive(&python, &argv);
-    }
-    let parsed = parse(rest, &["--home", "--json"])?;
-    let home = match value_of(&parsed, "--home") {
+fn distribution_service(parsed: &Parsed) -> Result<Service> {
+    let manager = match value_of(parsed, "--home") {
         Some(path) if Path::new(&path).is_absolute() => PathBuf::from(path),
         Some(_) => return Err(usage_error()),
         None => harness::manager_home_from_environment()?,
     };
-    match subcommand {
-        "bootstrap" | "sync" => {
-            if !parsed.positionals.is_empty() || has_flag(&parsed, "--json") {
-                return Err(usage_error());
-            }
-            let (python, argv) = harness_embed::embed_invocation(subcommand, &home)?;
-            spawn_interactive(&python, &argv)
-        }
-        "status" => {
-            if !parsed.positionals.is_empty() {
-                return Err(usage_error());
-            }
-            let mut engine_args = vec!["status".to_owned()];
-            if has_flag(&parsed, "--json") {
-                engine_args.push("--json".into());
-            }
-            let (python, argv) = harness_embed::harness_invocation(&home, &engine_args)?;
-            spawn_interactive(&python, &argv)
-        }
-        _ => Err(Error::new(
-            "CLI_COMMAND",
-            "未知 harness 子命令；可用 bootstrap、sync、status，或 atm harness -- <args>。",
-        )),
+    let user = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .ok_or_else(usage_error)?;
+    Service::new(manager, user).map(Service::with_environment)
+}
+
+fn selected_source(parsed: &Parsed) -> Result<PathBuf> {
+    match value_of(parsed, "--source") {
+        Some(path) if Path::new(&path).is_absolute() => Ok(PathBuf::from(path)),
+        Some(_) => Err(usage_error()),
+        None => source::locate(),
     }
+}
+
+fn dispatch_harness(rest: &[String]) -> Result<i32> {
+    harness_embed::bound_engine_args(rest)?;
+    let (subcommand, rest) = match rest.split_first() {
+        Some((subcommand, rest)) => (subcommand.as_str(), rest),
+        None => {
+            println!("{USAGE}");
+            return Ok(0);
+        }
+    };
+    if subcommand == "--" {
+        return dispatch_harness_namespace(rest);
+    }
+    if subcommand == "runtime" {
+        return prepare_runtime(rest);
+    }
+    if subcommand == "plan" {
+        let parsed = parse(rest, &["--home", "--harness"])?;
+        let [operation] = parsed.positionals.as_slice() else {
+            return Err(usage_error());
+        };
+        if !matches!(
+            operation.as_str(),
+            "install" | "refresh" | "remove" | "repair"
+        ) || parsed.harness.is_empty()
+        {
+            return Err(usage_error());
+        }
+        let plan = distribution_service(&parsed)?.plan(operation, &parsed.harness)?;
+        return print_result(&serde_json::to_value(plan).map_err(|_| usage_error())?);
+    }
+    let options: &[&str] = match subcommand {
+        "bootstrap" | "sync" | "adopt" => &["--home", "--source", "--json"],
+        "status" | "recover" => &["--home", "--json"],
+        "verify-source" => &["--source", "--json"],
+        _ => {
+            return Err(Error::new(
+                "CLI_COMMAND",
+                "未知 harness 子命令；请查看 atm help。",
+            ))
+        }
+    };
+    let parsed = parse(rest, options)?;
+    if !parsed.positionals.is_empty() {
+        return Err(usage_error());
+    }
+    if subcommand == "verify-source" {
+        let bundle = source::load(&selected_source(&parsed)?)?;
+        return print_result(
+            &serde_json::json!({"identity":bundle.identity,"releaseVersion":bundle.release,"files":bundle.files.len()}),
+        );
+    }
+    let service = distribution_service(&parsed)?;
+    let value = match subcommand {
+        "bootstrap" | "sync" | "adopt" => {
+            service.bootstrap(&selected_source(&parsed)?, subcommand == "adopt")?
+        }
+        "status" => service.status()?,
+        "recover" => service.recover()?,
+        _ => unreachable!(),
+    };
+    print_result(&value)
+}
+
+/// The old `harness --` namespace accepts a bounded set of Rust operations.
+/// No arbitrary process, Python script, or legacy machine protocol is reachable.
+fn dispatch_harness_namespace(rest: &[String]) -> Result<i32> {
+    let (operation, args) = rest.split_first().ok_or_else(usage_error)?;
+    if operation == "status" {
+        let parsed = parse(args, &["--json"])?;
+        if !parsed.positionals.is_empty() {
+            return Err(usage_error());
+        }
+        return print_result(&Service::from_environment()?.status()?);
+    }
+    if !matches!(
+        operation.as_str(),
+        "install" | "refresh" | "remove" | "repair" | "check" | "doctor"
+    ) {
+        return Err(Error::new(
+            "CLI_COMMAND",
+            "该旧引擎命令已退役；请使用 atm help 列出的 Rust 命令。",
+        ));
+    }
+    let parsed = parse(args, &["--harness", "--dry-run", "--yes", "--json"])?;
+    let targets = if parsed.harness.is_empty() {
+        &parsed.positionals
+    } else {
+        if !parsed.positionals.is_empty() {
+            return Err(usage_error());
+        }
+        &parsed.harness
+    };
+    if targets.is_empty() && !matches!(operation.as_str(), "check" | "doctor") {
+        return Err(usage_error());
+    }
+    run_distribution(operation, targets, has_flag(&parsed, "--dry-run"))
+}
+
+fn prepare_runtime(rest: &[String]) -> Result<i32> {
+    let parsed = parse(
+        rest,
+        &[
+            "--home",
+            "--python",
+            "--external-venv",
+            "--offline",
+            "--json",
+        ],
+    )?;
+    let [verb, group] = parsed.positionals.as_slice() else {
+        return Err(usage_error());
+    };
+    if verb != "prepare" {
+        return Err(usage_error());
+    }
+    let python = value_of(&parsed, "--python")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .ok_or_else(usage_error)?;
+    let external = value_of(&parsed, "--external-venv").map(PathBuf::from);
+    if external.as_ref().is_some_and(|path| !path.is_absolute()) {
+        return Err(usage_error());
+    }
+    print_result(&distribution_service(&parsed)?.prepare_runtime(
+        group,
+        &python,
+        external.as_deref(),
+        has_flag(&parsed, "--offline"),
+    )?)
 }
 
 // ---------------------------------------------------------------------------

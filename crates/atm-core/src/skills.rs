@@ -176,6 +176,9 @@ fn classify_entry(
             link_target,
         }
     };
+    if manager_repo.is_some_and(|home| crate::distribution::owns_path(home, entry_path)) {
+        return build("engine_managed", None);
+    }
     let Ok(metadata) = fs::symlink_metadata(entry_path) else {
         return build("other", None);
     };
@@ -665,11 +668,12 @@ impl SkillsService {
         checked_name(name)?;
         self.reject_registered(root_id, name)?;
         require_unprotected_skill_path(&self.home, source)?;
-        if self
-            .manager_home
-            .as_ref()
-            .is_some_and(|root| path_within(source, root) || path_within(target_root_dir, root))
-        {
+        if self.manager_home.as_ref().is_some_and(|root| {
+            path_within(source, root)
+                || path_within(target_root_dir, root)
+                || crate::distribution::owns_path(root, source)
+                || crate::distribution::owns_path(root, &target_root_dir.join(name))
+        }) {
             return Err(Error::new(
                 "SKILLS_ENGINE_LOCKED",
                 "atm-harness 管理内容只能通过 harness 命令变更。",
@@ -720,11 +724,9 @@ impl SkillsService {
         }
         let target = target_root_dir(&self.home, root_id, self.inherit_environment)?.join(name);
         require_unprotected_skill_path(&self.home, &target)?;
-        if self
-            .manager_home
-            .as_ref()
-            .is_some_and(|root| path_within(&target, root))
-        {
+        if self.manager_home.as_ref().is_some_and(|root| {
+            path_within(&target, root) || crate::distribution::owns_path(root, &target)
+        }) {
             return Err(Error::new(
                 "SKILLS_ENGINE_LOCKED",
                 "atm-harness 管理内容只能通过 harness 命令变更。",
@@ -802,11 +804,9 @@ impl SkillsService {
         checked_name(&name)?;
         self.reject_registered(&root_id, &name)?;
         let target = target_root_dir(&self.home, &root_id, self.inherit_environment)?.join(&name);
-        if self
-            .manager_home
-            .as_ref()
-            .is_some_and(|root| path_within(&target, root))
-        {
+        if self.manager_home.as_ref().is_some_and(|root| {
+            path_within(&target, root) || crate::distribution::owns_path(root, &target)
+        }) {
             return Err(Error::new(
                 "SKILLS_ENGINE_LOCKED",
                 "atm-harness 管理内容只能通过 harness 命令变更。",

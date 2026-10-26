@@ -1,7 +1,7 @@
 # 跨平台合成验收矩阵与操作手册
 
 本页按当前实现区分文档声明、源码能力与实际验证。它是验收入口索引；
-操作语义以代码为准，执行状态以第 6 节所列环境、受测代码范围和日志为准。
+操作语义以代码为准。第 6 节保留 2026-10-25 历史执行记录；当前 Rust 分发迁移的局部证据见第 7 节，不能复用旧 Python 引擎的平台通过声明。
 
 ## 1. 证据等级
 
@@ -19,7 +19,7 @@
 
 ## 2. 功能与平台矩阵
 
-下表“本次”指第 6 节的 Linux 集成验证；所有平台原生验证状态分别列出。
+除明确标为当前 Rust 分发的两行外，下表“本次”指第 6 节历史 Linux 集成验证；并非当前全部工作区的测试结论。
 
 | 功能 | D/C：当前实现与测试入口 | T：本次已验证 | 未验证边界 |
 | --- | --- | --- | --- |
@@ -28,19 +28,17 @@
 | macOS 安全存储 | Keychain 专用条目 + AES-GCM；[macOS 说明](MACOS.md)、[macos.rs 测试](../crates/atm-core/tests/macos.rs) | 部分共享逻辑/模拟后端可在 Linux 测试；不构成 macOS 证据 | macOS 原生用例、真实 Keychain、GUI 未运行；CI 目标为 arm64，Intel/universal 未验证 |
 | 批量更新、JSONC、模板与回滚 | [batch.rs](../crates/atm-core/src/batch.rs)、[JSONC parity](../crates/atm-core/tests/parity.rs)、[模板测试](../crates/atm-core/tests/templates.rs)：逐文件原子替换、完整加密备份、精确源字节和本地 schema 校验 | 共享核心与 Linux 回归通过，含 T01 新增冲突/确认/备份边界和 P01 无转义解析、Unicode/控制字节回归 | Windows/macOS 专属文件语义未验证；合成性能收益不等于 GUI 延迟收益 |
 | Codex / GLM 额度 | [usage 测试](../crates/atm-core/tests/usage.rs)、[Codex 子进程测试](../crates/atm-core/tests/codex_process.rs)；未知值保留未知，固定端点/argv，主动查询 | 合成协议、错误和进程边界测试通过 | 未查询真实账户或额度端点 |
-| 内置引擎记录与机器协议 | [harness.rs](../crates/atm-core/src/harness.rs)、[harness_machine.rs](../crates/atm-core/src/harness_machine.rs)、[前端测试](../apps/desktop/tests/harness.test.ts) | 记录解析、合成协议/进程边界通过；已覆盖 operation.command、旧 kind/operation 字段兼容与 degraded 显示 | 未运行真实引擎安装（隔离 bootstrap E2E 需单独执行）；未将记录查询迁移为 machine status，也未改变命令 allowlist |
-| 内嵌引擎物化与收编 | [atm_embed.py](../harness/scripts/atm_embed.py)、[harness_embed.rs](../crates/atm-core/src/harness_embed.rs)、[test_atm_embed.py](../harness/tests/test_atm_embed.py)、[harness_embed 测试](../crates/atm-core/tests/harness_embed.rs) | 物化/幂等 sync/旧 git 收编/拒绝条件/无 git 运行/漂移拒绝/argv 限幅通过（Python + Rust 双侧） | 真实 manager home 迁移需单独授权；Windows 仅经 CI 测试矩阵覆盖 |
+| 当前 Rust 分发记录与 GUI bridge | [harness.rs](../crates/atm-core/src/harness.rs)、[harness_machine.rs](../crates/atm-core/src/harness_machine.rs) 直接调用 Rust service | 13 项 bridge 测试通过；状态解析、确认/重复目标拒绝、无 Python 只读查询 | 当前 GUI 原生 IPC/真实客户端未验证；旧 machine subprocess 协议已退役 |
+| 当前 Rust 内容分发与显式交接 | [distribution](../crates/atm-core/src/distribution/)、[CLI 测试](../crates/atm-cli/tests/cli.rs) | 6 项空 PATH/离线缓存 CLI 测试通过，涵盖静态生命周期、用户修改拒绝、显式解释器/来源验证 | 完整集成结果另记；真实旧 manager、Windows/macOS 原生迁移未验证 |
 | 技能、回收站、投影与 CLI | [skills 测试](../crates/atm-core/tests/skills.rs)、[projection 测试](../crates/atm-core/tests/projection.rs)、[CLI 测试](../crates/atm-cli/tests/cli.rs) | Linux 临时目录中的复制、符号链接投影、所有权拒绝、回收恢复和 CLI 通过，含 T02 | macOS 虽共用 POSIX 实现，原生未测；Windows 为普通复制投影，foreign-slot 断言已修正但未在 Windows 运行；真实技能根未访问 |
 | 前端 | [组件测试](../apps/desktop/tests)、TypeScript 与 Vite | 88 项通过，类型检查与前端构建通过 | 前端测试/构建不能代替 Tauri 原生启动和 GUI 验证 |
 
-内置引擎（物化于 manager home 的 `<home>/repo`）在三平台均以管理目录内的 venv Python 加
-`repo/scripts/engine.py` 绝对路径执行：Windows 为 `venv/Scripts/python.exe`，Linux/macOS 为
-`venv/bin/python`，不经 shell shim。记录查询仍使用 `status --json`；能力/诊断/变更走
-machine v1。CLI 表面为动词优先语法（`atm install/update/uninstall/check/repair skills
---harness …`、`atm install/uninstall/check hooks --harness codex`、维护组 `atm harness
-bootstrap|sync|status` 与 `atm harness --` 逃生口）；实际可用性仍取决于当前引擎
-capabilities、明确目标和确认要求；recover/update 在嵌入模式明确拒绝。详情见
-[README](../README.md#内置技能分发引擎harness)。
+当前分发由 `distribution::Service` 执行。bootstrap/sync 验证和缓存 manifest 内容，
+不创建 Python venv；静态 skills 的 install/update/uninstall/status 可在无 Python 环境使用。
+只有显式选定的 payload runtime 需要声明的绝对解释器；外部 venv 只验证。准备 runtime
+不启用 hook，启停由 Rust 安全合并 owned entries。CLI/GUI 共用 ownership 与 journal。
+`atm harness adopt` 是旧状态的一次性交接，`recover` 是显式恢复；普通操作不调用旧引擎。
+详细命令见 [README](../README.md)。
 
 ### 原生 GUI 入口与 PASS 的含义
 
@@ -76,11 +74,10 @@ Cargo 使用 `--locked --offline`。默认隔离 CARGO_HOME 必须已有所需�
 引擎管理目录覆盖。应用的 `from_environment()` 仍尊重这些环境配置，不能用它创建合成 fixture。
 回归以独立子进程注入外部假目录并检查目录未变，不在并行 Rust 测试中修改全局环境。
 
-`ATM_TEST_ENGINE_CHECKOUT`、`ATM_ENGINE_LIVE=1` 和 `ATM_SKILLS_LIVE=1` 分别启用真实
-引擎 checkout、真实引擎安装和真实技能盘点；`ATM_ENGINE_PYTHON_STRICT=1` 要求
-Python 工具依赖可用（否则 Verify-Local 的引擎套件判失败）。未设置时对应三个测试提前返回并计 passed；
-因此通过总数包含这些空返回，不能据此宣称真实对象已测。`Verify-Local.sh` 强制关闭三项；
-若直接运行 Cargo，须由调用者在测试子进程中关闭它们。真实对象验证必须单独明确选择入口。
+当前 harness bridge 测试不再提供真实 Python 引擎 opt-in。`ATM_SKILLS_LIVE=1` 的真实
+本地盘点入口仍须单独授权，`Verify-Local.sh` 强制关闭。保留的
+`ATM_ENGINE_PYTHON_STRICT=1` 仅要求 payload/开发验证所需 Python 模块可用；它不是
+运行 Rust 分发的前提。Python 测试使用临时目录；缺开发依赖时必须记录跳过而不是通过。
 
 ### 原生平台流程
 
@@ -126,7 +123,7 @@ Python 工具依赖可用（否则 Verify-Local 的引擎套件判失败）。�
 [Audit-TrackedSource.ps1](../scripts/Audit-TrackedSource.ps1) 的 Head/Staged 模式读取对应
 Git blob。未暂存文档应由工作树审计检查，不能拿 Head 结果证明它已验证，也无需为验证先暂存。
 
-## 6. 本次集成验证状态（2026-10-25）
+## 6. 历史集成验证状态（2026-10-25）
 
 2026-10-25 验证时，受测状态为基线 `3156a541537ec0e4530f464ab2ce5a6a33bf30da` 加当时未提交的 T01/T02、
 引擎 command/degraded 修正、P01 JSONC 优化/回归，以及最终复审后的显式技能根隔离修复；
@@ -145,3 +142,21 @@ opt-in 后验证通过，六个假目录内容保持不变。HOME/XDG 与引擎�
 以下仍未验证：三平台原生 GUI、Linux 私有真实 keyring、Windows DPAPI 与专属文件用例、
 macOS Keychain/原生文件行为、真实引擎安装、真实技能根和额度端点；macOS Intel/universal
 及分发签名也无本次证据。历史 CI 绿勾和历史 C# 报告不能替代这些验证。
+
+## 7. 当前 Rust 分发迁移局部证据（2026-10-26）
+
+受测基线 `df63e0c6bc4acb29d8df508b9f2b62c62b87fdda` 加
+`codex/harness-rust-migration` 未提交工作区，Linux x86_64。当前已执行：
+
+- `cargo check --locked --offline -p atm-cli --tests` 通过。
+- `cargo test --locked --offline -p atm-core --test harness --test harness_embed --test harness_machine --test harness_process`：13 项通过。
+- `cargo test --locked --offline -p atm-cli --test cli -- --skip rust_distribution`：11 项保留的本地 CLI 回归通过。
+- `cargo test --locked --offline -p atm-cli --test cli rust_distribution`：6 项通过；CLI 子进程 PATH 为空，临时 Unicode/空格路径，删除来源后仍从完整缓存完成生命周期。
+- `python3 -m py_compile scripts/Package-Release.py scripts/Test-Distribution.py` 与 `bash -n scripts/Verify-Local.sh` 通过。
+- `cargo clippy --locked --offline -p atm-cli --all-targets -- -D warnings`、CI YAML 解析及所改文件 `git diff --check` 通过。
+- `scripts/Test-Distribution.py --cli-only` 对合成 debug CLI-only 抽取包通过空 PATH/离线缓存生命周期；证据保存在 `/tmp/atm-cli-only-migration-smoke-ete939c9/smoke.log`。未包含桌面发布二进制，不是完整 release 或 GUI 验证。
+
+首次 payload fixture 使用词法 `../../` 路径，来源校验正确拒绝；fixture 改为规范绝对路径
+后通过。真实内容的 Codex 规划回归随后发现 `agents/operating-principles.md` 未进入封存清单；补齐来源库存后完整 CLI 17 项通过。完整 Rust/前端/payload 集成和发布包验证应以最终交付报告补充，以上计数不包含它们。
+新分发的 Windows/macOS 原生行为、真实 Codex 集成、真实旧状态交接、真实 venv 和用户配置
+均未执行；旧 CI 通过记录不填补这些边界。本轮没有部署、提交、推送或刷新真实 ATM 入口。

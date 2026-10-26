@@ -261,7 +261,9 @@ impl ProjectionRegistry {
         require_unprotected_skill_path(&self.home, source)?;
         auditable_source(source)?;
         let manager_home = self.manager_home();
-        if path_within(source, &manager_home) {
+        if path_within(source, &manager_home)
+            || crate::distribution::owns_path(&manager_home, source)
+        {
             return Err(Error::new(
                 "SKILLS_ENGINE_LOCKED",
                 "不能收编或重新投影 atm-harness 管理的技能。",
@@ -436,7 +438,8 @@ impl ProjectionRegistry {
     fn require_free_target(&self, target_root: &str, name: &str) -> Result<()> {
         let root = target_root_dir(&self.home, target_root, self.inherit_environment)?;
         let manager_home = self.manager_home();
-        if path_within(&root, &manager_home) {
+        if path_within(&root, &manager_home) || crate::distribution::owns_path(&manager_home, &root)
+        {
             return Err(Error::new(
                 "SKILLS_ENGINE_LOCKED",
                 "不能向 atm-harness 管理目录投影。",
@@ -579,7 +582,8 @@ impl ProjectionRegistry {
     ) -> Result<bool> {
         let root = target_root_dir(&self.home, target_root, self.inherit_environment)?;
         let manager_home = self.manager_home();
-        if path_within(&root, &manager_home) {
+        if path_within(&root, &manager_home) || crate::distribution::owns_path(&manager_home, &root)
+        {
             return Err(Error::new(
                 "SKILLS_ENGINE_LOCKED",
                 "不能变更 atm-harness 管理目录。",
@@ -936,7 +940,8 @@ impl ProjectionRegistry {
     fn refresh_root(&self, root_id: &str) -> Result<PathBuf> {
         let root = target_root_dir(&self.home, root_id, self.inherit_environment)?;
         let manager_home = self.manager_home();
-        if path_within(&root, &manager_home) {
+        if path_within(&root, &manager_home) || crate::distribution::owns_path(&manager_home, &root)
+        {
             return Err(Error::new(
                 "SKILLS_ENGINE_LOCKED",
                 "不能变更 atm-harness 管理目录。",

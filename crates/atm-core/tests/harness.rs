@@ -1,7 +1,6 @@
 // Only TEST_ONLY fixtures. No real atm-harness install, Git, Codex or network.
 use atm_core::harness;
 use serde_json::{json, Value};
-use std::fs;
 
 fn recorded_status() -> Value {
     // Mirrors `harness status --json` (recorded-state-only), with TEST_ONLY values.
@@ -69,37 +68,6 @@ fn manager_home_resolves_override_empty_env_and_default() {
     };
     assert_eq!(empty, std::path::PathBuf::from(expected));
     assert_eq!(default, empty);
-}
-
-fn fixture_home_with_scripts() -> (tempfile::TempDir, std::path::PathBuf) {
-    let root = tempfile::tempdir().unwrap();
-    let home = root.path().join("TEST_ONLY manager home");
-    let python = if cfg!(windows) {
-        home.join("venv/Scripts/python.exe")
-    } else {
-        home.join("venv/bin/python")
-    };
-    fs::create_dir_all(python.parent().unwrap()).unwrap();
-    fs::create_dir_all(home.join("repo/scripts")).unwrap();
-    fs::write(python, "TEST_ONLY").unwrap();
-    fs::write(home.join("repo/scripts/engine.py"), "# TEST_ONLY data\n").unwrap();
-    (root, home)
-}
-
-#[test]
-fn invocation_rejects_missing_components_and_non_absolute_homes() {
-    let (root, home) = fixture_home_with_scripts();
-    assert!(harness::invocation(&home).is_ok());
-    // Missing CLI data file means the checkout is not a usable installation source.
-    fs::remove_file(home.join("repo/scripts/engine.py")).unwrap();
-    let error = harness::invocation(&home).unwrap_err();
-    assert_eq!(error.code, "HARNESS_NOT_INSTALLED");
-    let relative = std::path::Path::new("TEST_ONLY/relative");
-    assert_eq!(
-        harness::invocation(relative).unwrap_err().code,
-        "HARNESS_NOT_INSTALLED"
-    );
-    drop(root);
 }
 
 #[test]
