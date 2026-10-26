@@ -58,6 +58,28 @@ class EmbeddedMaterializationTests(unittest.TestCase):
         payload = require_repository_identity(self.source)
         return payload["releaseVersion"], payload["bundleIdentity"]
 
+    def test_engine_identity_refuses_directory_links_at_root_and_inside_tree(self):
+        from embedded_identity import content_identity
+        from sync_agents_skills import create_projection_link
+
+        linked_root = self.root / "linked-source"
+        create_projection_link(linked_root, self.source)
+        try:
+            with self.assertRaisesRegex(SystemExit, "ordinary directory"):
+                content_identity(linked_root)
+        finally:
+            linked_root.rmdir() if os.name == "nt" else linked_root.unlink()
+
+        external = self.root / "external-source"
+        external.mkdir()
+        nested_link = self.source / "linked-content"
+        create_projection_link(nested_link, external)
+        try:
+            with self.assertRaisesRegex(SystemExit, "directory links"):
+                content_identity(self.source)
+        finally:
+            nested_link.rmdir() if os.name == "nt" else nested_link.unlink()
+
     def test_materialize_creates_marker_state_and_launchers(self):
         release, bundle = self.identity()
         result = self.embed("materialize", "--source", str(self.source), "--home", str(self.home))

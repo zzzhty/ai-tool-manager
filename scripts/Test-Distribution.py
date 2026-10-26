@@ -30,9 +30,13 @@ def main():
         home = user / "manager with spaces"
         # Deliberately retain only runtime/network certificate variables, not tool homes.
         keep = {"PATH", "SystemRoot", "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT",
-                "TEMP", "TMP", "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE",
+                "TEMP", "TMP", "PSMODULEANALYSISCACHEPATH", "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE",
                 "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy"}
-        env = {key: value for key, value in os.environ.items() if key in keep}
+        # Windows runner PowerShell keeps its module-analysis cache outside the
+        # user profile. Dropping this runtime variable rescans modules on every
+        # junction subprocess (measured 22s vs <1s after warmup), not user config.
+        keep = {key.upper() for key in keep}
+        env = {key: value for key, value in os.environ.items() if key.upper() in keep}
         env.update(HOME=str(user), USERPROFILE=str(user), ATM_HOME=str(home),
                    APPDATA=str(user / "appdata"), LOCALAPPDATA=str(user / "localappdata"),
                    XDG_DATA_HOME=str(user / ".local/share"), XDG_CONFIG_HOME=str(user / ".config"),
