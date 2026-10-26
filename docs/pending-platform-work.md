@@ -18,32 +18,38 @@ registry、agents 的变更，marker 相等也无法证明目标未漂移；这�
 缺口需要完整受管理引擎内容契约，原插件 generation 门禁保持原范围。
 完整检查用于物化、同步及引擎写入边界，status 继续只读记录态。
 
-- [ ] 阶段 1：更名、空 vault 身份；Python/--home；旧状态收编、同步恢复；CI 回归。
-- [ ] 阶段 2：完整 CLI/桌面/harness 分发包；脱离 checkout 的合成安装与升级验收。
-- [ ] 阶段 3：registry 单一工具定义；共用应用服务；vault/模板故障隔离。
-- [ ] 最终审查、源清单与相关本地检查；可用的原生平台 CI；GitHub 仓库改名与 remote 核对。
+- [x] 阶段 1：更名、空 vault 身份；Python/--home；旧状态收编、同步恢复；CI 回归。
+- [x] 阶段 2：完整 CLI/桌面/harness 分发包；脱离 checkout 的合成安装与升级验收。
+- [x] 阶段 3：registry 单一工具定义；共用应用服务；vault/模板故障隔离。
+- [x] 最终审查、源清单与相关本地检查；可用的原生平台 CI；GitHub 仓库改名与 remote 核对。
 
 验收只用隔离合成状态和假凭据；不运行用户真实 harness 安装/迁移、不读写用户配置。
 复用已覆盖最终状态的检查；新失败和受影响状态必须重新验证。
 阶段 4 工具中心界面、阶段 5 配置档、本机真实安装切换均不在本轮范围。
 
-实现已落地，正在完成目标提交的平台验收：
+实现已落地，最终代码提交为 `6a12df1f0482491a0a5c43592f3ffeaf67a23ca9`。
+三平台完整 CI：[40289226524](https://github.com/zzzhty/ai-tooling-manager/actions/runs/40289226524)，7 个任务全部通过（Rust core、Linux Python 3.11/3.12、Windows Python 3.12，以及 Linux/Windows/macOS 三套原生桌面任务）。
 
-- GitHub 仓库已改为 `zzzhty/ai-tooling-manager`，repository id 保持 `1430854963`；origin 已同步。CLI 与存储目录不变。
-- 本地 Rust 核心/CLI/应用服务 203 项通过（独立 keyring opt-in 未计入）；原生 clippy、前端类型检查/89 项测试/构建通过。
-- 引擎 484 项（6 skip）、Watcher 87 项（3 skip）、Workflow 96 项通过；插件 generation 检查通过，未更改插件包身份。
-- Linux 原生 WebKit GUI 通过；解压发布包在临时 home 完成真实 bootstrap、ZCode 安装、引擎脚本升级、同步漂移修复、本地投影及收据/配置保留验收。
-- 发布包验收发现并修复了嵌入式安装写收据仍访问 Git HEAD 的缺陷。完整 Python 回归及最终原生包复验进行中。
-- 源清单与凭据模式审计通过（393 文件）；Linux 独立真实 Secret Service 创建/重启后重新打开通过。
-- 首轮 CI `40281106230` 的 core 通过。Python Linux 37 项失败已定位为 fixture commit 后的 Git 自动后台维护改写 `.git`，仅在 fixture 创建时禁止自动维护，完整快照断言保留。macOS 新 fixture 权限错误改用 0600 创建，保留生产安全权限检查。
-- 原 Windows Python CI 的两项测试仍调用已移除的 `install.ps1`。将错误处理/写入前路径拒绝的行为断言移到现存 Python 入口及三平台发布 CLI；移除已无归属入口的 PowerShell 颜色实现断言，不跳过现存安全行为测试。
-- 第二轮 CI `40281716505`（f7403bc）：core、Linux Python 3.11/3.12、Linux 原生完整包、macOS arm64 原生完整包通过；Windows 静态/核心/GUI 通过，发布验收输出被 CP1252 误解码，已在 c42be03 固定 UTF-8；旧 wrapper 测试已在 31adcc6 更换为现存入口行为断言。最终提交的 CI 正在运行。
+- 仓库：GitHub 已更名为 `zzzhty/ai-tooling-manager`，repository id 保持 `1430854963`；origin 已同步。本地工作目录仍为 `ai-tool-manager`，保留当前桌面工作区绑定。
+- 本地验证：Rust 核心/CLI/应用服务 203 项、前端 89 项、引擎 484 项（4 skip）、Watcher 87 项（3 skip）、Workflow 96 项通过；格式、clippy、类型检查、构建和原插件 generation 检查通过。独立真实 Secret Service 创建/重启后重新打开通过；本地引擎与解压包验收覆盖最终引擎改动。
+- 分发验收：在 checkout 外解压，使用临时 home 和假配置完成自动发现 Python、bootstrap、ZCode 安装、Codex 本地投影、仅修改引擎脚本的升级、漂移修复及重新应用；断言已有收据、desired state、本地投影登记和用户配置保留。Linux x64、Windows x64、macOS arm64 的最终原生 GUI 和完整解压包验收均通过。
+- 源与状态：源清单审计为 393 个 UTF-8 项目文件，无检测到的凭据模式；插件内容和 generation 身份未变更。没有读取或写入用户真实 vault、harness 安装或配置。
 
-- 最终复验期间的 Windows 分发超时已定位：`40285800277` 在 240 秒内完成 11 个技能 junction；`40287636123` 显示空 PowerShell 与 junction 均约 22 秒，耗时在进程初始化。`40288179284` 证明保留运行环境但隔离用户目录只需 0.31 秒；`40288834810` 确认缺失 `PSModuleAnalysisCachePath` 导致每次模块分析重新变慢。验收脚本保留这一运行时缓存变量，继续隔离所有用户配置路径、保留 240 秒超时及进程树清理；生产投影方式不变，临时 CI 探针已移除。
-- 最终审查补齐完整引擎身份的 Windows reparse-point 拒绝（junction 不能仅用 `is_symlink()` 识别）及目录遍历失败处理。原生目录链接回归已加入；本地引擎全套 484 项（4 skip）及 Linux 解压包完整生命周期通过。最新提交三平台 CI 待完成。
+验收中修复的缺陷：发布引擎写收据仍依赖 Git HEAD；Windows 输出按 CP1252
+误解码；旧测试调用已退役安装脚本；Git 后台维护干扰只读快照 fixture；
+macOS 新 fixture 未设置 0600；完整引擎检查未显式拒绝 Windows junction。
+对应行为和原安全门禁均保留或补齐，未放宽快照、权限和插件身份检查。
 
-本页记录集成范围及后续方案，不代表稳定发布或平台测试已经通过。实际结果以目标
-提交的测试输出和 CI 为准；未执行与准入受阻均不能算作通过。
+Windows 分发超时的对照证据：`40285800277` 在 240 秒内只完成 11 个
+junction；`40287636123` 中空 PowerShell 与 junction 均约 22 秒；
+`40288179284` 保留运行环境但隔离用户目录后为 0.31 秒；`40288834810`
+确认缺失 `PSModuleAnalysisCachePath` 导致重复模块分析。验收脚本保留这一
+运行时缓存变量，继续隔离用户配置路径，保留 240 秒超时及进程树清理。
+生产投影方式未改，临时 CI 探针已移除。最终 Windows 分发安装耗时 10.9 秒，重新应用耗时 1.2 秒，完整生命周期通过。
+
+阶段验收不等于稳定版本发布。便携包未签名，harness 仍需 Python 3.11+
+及首次 bootstrap 安装依赖；原生 GUI 需要各平台运行库。代码位于上述工作
+分支，未合并 main，也未执行本机真实安装切换。
 
 ## 平台验收
 
@@ -63,4 +69,3 @@ oh-my-harness 引擎已整体收编进本仓库（`harness/`），ATM 成为唯�
 
 显式安装/升级引导仍待独立评估；静态 update 入口受能力和确认约束，不构成完整升级引导，recover 不受支持。打开 ATM 或一次普通确认不授权安装、升级、重克隆或更改 PATH。文件替换、
 清空目录、事务恢复等额外风险转终端处理，不自动代答。这些后续候选不扩大当前集成的实现范围。
-
