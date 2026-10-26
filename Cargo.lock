@@ -278,6 +278,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "toml_edit 0.20.2",
  "uuid",
  "windows-sys 0.61.2",
  "zeroize",

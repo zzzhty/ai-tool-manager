@@ -1,0 +1,23 @@
+{
+  "name": "maintenance",
+  "version": "1.1.0+codex.93a8f90115f9d09d",
+  "description": "Interactive documentation alignment, housekeeping, skill maintenance, and semantic compression workflows.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Maintenance",
+    "shortDescription": "Audit docs and maintain skills from evidence",
+    "longDescription": "Four interactive maintenance skills. Watcher collection and reporting are separate optional runtime content; installing these skills does not enable hooks.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Audit documentation drift, clean disposable artifacts, or maintain skills using the appropriate maintenance workflow"
+    ]
+  }
+}

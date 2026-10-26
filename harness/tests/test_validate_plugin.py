@@ -27,7 +27,7 @@ class PluginValidatorTests(unittest.TestCase):
         )
 
     def test_current_first_party_plugins_pass(self) -> None:
-        for plugin_name in ("watcher", "workflow", "mattpocock-skills"):
+        for plugin_name in ("maintenance", "workflow", "mattpocock-skills"):
             with self.subTest(plugin=plugin_name):
                 result = self.run_validator(REPO_ROOT / "plugins" / plugin_name)
                 self.assertEqual(result.returncode, 0, result.stderr or result.stdout)

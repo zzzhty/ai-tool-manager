@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ATM optional Python payload runtime group",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "minimumPython"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+    "minimumPython": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "integer", "minimum": 0}},
+    "requirementsLock": {"type": ["string", "null"]},
+    "imports": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+  }
+}

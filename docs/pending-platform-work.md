@@ -1,6 +1,30 @@
 # 平台集成与后续计划
 
-## 2026-10-26：AI Tooling Manager 阶段 1—3
+## 当前：harness Rust 分发迁移（2026-10-26）
+
+本轮基线为 `df63e0c6bc4acb29d8df508b9f2b62c62b87fdda`，隔离工作分支
+`codex/harness-rust-migration`，工作区位于
+`/home/zzzhty/Documents/Codex/2026-10-26/task-4/ai-tooling-manager`。
+Home 源仓库为 `/home/zzzhty/Projects/ai-tooling-manager`；不复用旧路径、不建兼容链接。
+本轮不提交、不推送、不发布、不刷新真实程序入口、不操作真实 harness/venv 或独立 OMH 仓库。
+
+Rust service 取代 Python 分发器：版本化 manifest、来源/版本校验、缓存、计划/应用、
+目标适配、receipt、锁、journal、按需 Python payload runtime 与独立 hook 启停。
+CLI 和 GUI 直接调用同一 service。静态内容 bootstrap/sync 无需 Python；
+旧状态交接仅走显式 `atm harness adopt`，中断恢复走 `atm harness recover`。
+Watcher 运行组件移入 `runtimes/watcher`，四个交互维护 skills 保留在 maintenance 包。
+历史身份映射保留，用户日志不改写。源码和覆盖范围以当前未提交差异为准。
+
+已执行的局部验证：Rust bridge 13 项、保留的本地 CLI 11 项，以及新的空 PATH/离线缓存
+CLI 6 项通过；package/smoke 脚本语法检查通过。首次 CLI payload fixture 因 `../../`
+非规范路径被来源校验拒绝，修正 fixture 使用 canonical path 后通过。
+真实内容的 Codex 规划回归发现遗漏的 agent-support 文件，补入封存清单后通过；完整 CLI 17 项通过。完整集成测试与发布包验证由本轮最终结果记录。新 Rust 分发的 Windows/macOS 原生执行、
+真实客户端集成、真实旧安装交接和真实 Python 环境均未由这些 Linux 合成测试证明。
+
+下方阶段 1—3、CI 链接与路径记录属于迁移前历史，原文保留；其中 Python bootstrap、
+旧目录、旧脚本及此前三平台通过声明不再是当前使用指令或本轮验证证据。
+
+## 历史：2026-10-26 AI Tooling Manager 阶段 1—3
 
 用户已授权实施、仓库更名与空 vault 身份替换。工作分支：
 `codex/ai-tooling-manager-integration`；基线：`8108c0e`。
@@ -57,15 +81,13 @@ Windows/Linux 的现有功能及技能刷新保护继续保留。macOS 增加原
 桌面权限与隔离验证入口；各平台需要分别验收。真实 vault/Keychain、用户配置、账户
 额度和真实引擎安装不作为测试输入。数据迁移、安装、签名和发布独立评估。
 
-## 内置技能分发引擎（已收编）
+## 当前入口与后续验收
 
-oh-my-harness 引擎已整体收编进本仓库（`harness/`），ATM 成为唯一来源：独立仓库已归档，原 update 的 git 更新流程由 ATM 版本发布取代，install.sh/ps1 不再是入口。`atm harness bootstrap` 将内嵌源码物化为 manager home 的非 git 分发（身份=内容哈希），`atm harness sync` 在 ATM 升级后重物化并收编旧 git 安装。
+当前命令与 runtime 分组见 [README](../README.md) 和 [Harness 工作流](../harness/README.md)。
+程序不调用旧 `machine.py`/`engine.py`。源码中的 Python 仅服务于 payload 或开发验证。
+记录态与操作结果经 `harness.rs` / `harness_machine.rs` 转成 GUI 既有视图；能力与用户确认
+不能绕过 ownership、用户修改保护或 journal 恢复边界。
 
-引擎保有状态、收据、分发、修复及锁的所有权；统一盘点只统一展示，动作按明确 owner 分派：ATM 自有技能由 `atm <verb> skills`（本地模态）管理，引擎托管分发由 `--harness` 模态动词操作；外来或 owner 未知的内容只读，禁止双重管理或猜测接管。CLI（`atm`）是完整管理器，GUI 是可选 UI 端，两者共用同一物化引擎与 machine v1 协议。
-
-已接入：记录态快照与 capabilities/诊断/生命周期结果、动词优先 CLI 表面（skills/hooks 对象 + `--harness` 模态）、物化/同步/收编流程、内容哈希漂移检测（漂移时指引 `atm harness sync`）、watcher 钩子对象级动词（install/uninstall/check）。嵌入模式下 update/recover/reclone 明确拒绝。未 bootstrap 时展示不可用并指引；未知健康保持未知，失败或超时不自动重试。实现与验证范围见 [README](../README.md)、`crates/atm-core/src/harness_machine.rs`、`crates/atm-core/src/harness_embed.rs`、`harness/scripts/atm_embed.py` 与 `apps/desktop/src/harness.ts`。
-
-## 后续候选（尚未实施）
-
-显式安装/升级引导仍待独立评估；静态 update 入口受能力和确认约束，不构成完整升级引导，recover 不受支持。打开 ATM 或一次普通确认不授权安装、升级、重克隆或更改 PATH。文件替换、
-清空目录、事务恢复等额外风险转终端处理，不自动代答。这些后续候选不扩大当前集成的实现范围。
+继续需要独立证据：Windows 锁/路径/文件替换的原生运行、macOS 原生运行、Codex 实际客户端
+发现与启停、完整桌面发布包的抽取测试。已有 CI 定义不是通过声明。真实安装切换、
+用户 venv、凭据、网络设置、PATH、签名与发布均不在本轮实施权限内。

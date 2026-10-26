@@ -74,7 +74,7 @@ jobs:
       - name: Require clean formatting
         if: always() && steps.format.outcome != 'success'
         run: exit 1
-  python-engine:
+  python-payloads:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.validation_scope == 'all' }}
     strategy:
       fail-fast: false
@@ -103,14 +103,16 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
-      - name: Engine tooling dependencies
+      - name: Developer and payload validation dependencies
         run: python -m pip install -r requirements.txt
-      - name: Byte-compile engine sources
-        run: python -m compileall -q scripts tests plugins/watcher plugins/workflow
-      - name: Engine unit tests
+      - name: Byte-compile payload and developer sources
+        run: python -m compileall -q scripts tests runtimes/watcher plugins/maintenance plugins/workflow
+      - name: Developer tooling tests
         run: python -m unittest discover -s tests -p "test_*.py"
-      - name: Watcher plugin tests
-        run: python -m unittest discover -s plugins/watcher/tests -p "test_*.py"
+      - name: Watcher runtime tests
+        run: python -m unittest discover -s runtimes/watcher/tests -p "test_*.py"
+      - name: Maintenance workflow tests
+        run: python -m unittest discover -s plugins/maintenance/tests -p "test_*.py"
       - name: Workflow plugin tests
         run: python -m unittest discover -s plugins/workflow/tests -p "test_*.py"
       - name: Distribution identity ledger check

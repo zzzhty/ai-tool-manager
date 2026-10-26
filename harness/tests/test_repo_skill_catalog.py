@@ -157,7 +157,7 @@ class RepoSkillCatalogTests(unittest.TestCase):
         self.assertEqual(len(catalog.sources), len(catalog.by_name))
         self.assertEqual(
             set(catalog.plugin_names),
-            {"watcher", "workflow", "mattpocock-skills"},
+            {"maintenance", "workflow", "mattpocock-skills"},
         )
         for source in catalog.sources:
             self.assertTrue((source.path / "SKILL.md").is_file())

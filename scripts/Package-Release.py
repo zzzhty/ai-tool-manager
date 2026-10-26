@@ -1,10 +1,28 @@
 #!/usr/bin/env python3
-"""Build a portable ATM directory from already-built native release binaries."""
+"""Package native binaries and the manifest allowlist; Python is build tooling only."""
 import argparse
+import json
 import platform
 import shutil
+import subprocess
 import sys
 from pathlib import Path
+
+
+def verify(cli: Path, payload: Path) -> dict:
+    result = subprocess.run(
+        [str(cli), "harness", "verify-source", "--source", str(payload)],
+        check=True, capture_output=True, text=True, encoding="utf-8", timeout=60,
+    )
+    return json.loads(result.stdout)
+
+
+def payload_path(root: Path, raw: str) -> Path:
+    relative = Path(raw)
+    if (not raw or relative.is_absolute() or ".." in relative.parts
+            or "\\" in raw or ":" in raw or any(ord(char) < 32 for char in raw)):
+        raise SystemExit(f"invalid payload path: {raw!r}")
+    return root / relative
 
 
 def main():
@@ -12,32 +30,41 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
-    sys.path.insert(0, str(repo / "harness/scripts"))
-    from embedded_identity import content_identity
-    from plugin_package_identity import require_repository_identity
-    require_repository_identity(repo / "harness")
     suffix = ".exe" if sys.platform == "win32" else ""
     binaries = [repo / "target/release" / (name + suffix) for name in ("atm", "atm-desktop")]
     for binary in binaries:
         if not binary.is_file():
             parser.error(f"build the native release binary first: {binary}")
+    source = repo / "harness"
+    expected = verify(binaries[0], source)
+    manifest = json.loads((source / "distribution-manifest.json").read_text(encoding="utf-8"))
     destination = args.output.resolve()
     destination.mkdir(parents=True, exist_ok=False)
     for binary in binaries:
         shutil.copy2(binary, destination / binary.name)
-    shutil.copytree(repo / "harness", destination / "harness",
-                    ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc", "*.pyo", ".venv"))
-    if content_identity(repo / "harness") != content_identity(destination / "harness"):
-        raise SystemExit("source changed while packaging; rebuild from a stable checkout")
+    payload = destination / "harness"
+    payload.mkdir()
+    # Rust validates every path and digest before this build-only copier runs.
+    for directory in manifest.get("directories", []):
+        payload_path(payload, directory).mkdir(parents=True, exist_ok=True)
+    for item in manifest["files"]:
+        target = payload_path(payload, item["path"])
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(payload_path(source, item["path"]), target)
+    shutil.copy2(source / "distribution-manifest.json", payload / "distribution-manifest.json")
+    if verify(destination / binaries[0].name, payload) != expected:
+        raise SystemExit("payload changed while packaging; rebuild from a stable checkout")
     shutil.copy2(repo / "LICENSE", destination / "LICENSE")
     (destination / "README.txt").write_text(
         "AI Tooling Manager (atm)\n\n"
         "Keep atm, atm-desktop and harness/ together when extracting or upgrading.\n"
         "CLI: ./atm help (Windows: .\\atm.exe help). Desktop: atm-desktop.\n"
-        "Harness requires Python 3.11+ with venv/pip; first bootstrap installs requirements.\n"
+        "Static skills distribution and recorded status do not require Python.\n"
         "Run: atm harness bootstrap; after upgrading: atm harness sync.\n"
         "Then: atm update skills --harness <ID> to reapply recorded distributions.\n"
-        "ATM_HOME selects manager state; sync preserves receipts and user configuration.\n"
+        "Python payload runtimes require explicit preparation with an absolute interpreter.\n"
+        "Preparing a runtime does not enable hooks. Hook activation is a separate command.\n"
+        "ATM_HOME selects manager state. Legacy Python state requires explicit atm harness adopt.\n"
         "This portable build is unsigned. Native desktop runtime requirements apply.\n"
         f"Platform: {sys.platform} {platform.machine()}\n", encoding="utf-8")
     archive = shutil.make_archive(str(destination), "zip" if sys.platform == "win32" else "gztar",

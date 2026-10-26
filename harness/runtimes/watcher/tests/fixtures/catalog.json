@@ -1,0 +1,1158 @@
+{
+  "schemaVersion": 1,
+  "product": "atm-harness-catalog",
+  "sourceIdentity": "0000000000000000000000000000000000000000000000000000000000000000",
+  "skills": [
+    {
+      "id": "watcher:doc-alignment",
+      "plugin": "maintenance",
+      "name": "doc-alignment",
+      "directoryName": "doc-alignment",
+      "path": "plugins/maintenance/skills/doc-alignment",
+      "aliases": [
+        "maintenance:doc-alignment"
+      ]
+    },
+    {
+      "id": "watcher:housekeeping",
+      "plugin": "maintenance",
+      "name": "housekeeping",
+      "directoryName": "housekeeping",
+      "path": "plugins/maintenance/skills/housekeeping",
+      "aliases": [
+        "maintenance:housekeeping"
+      ]
+    },
+    {
+      "id": "watcher:skill-compressor",
+      "plugin": "maintenance",
+      "name": "skill-compressor",
+      "directoryName": "skill-compressor",
+      "path": "plugins/maintenance/skills/skill-compressor",
+      "aliases": [
+        "maintenance:skill-compressor"
+      ]
+    },
+    {
+      "id": "watcher:skill-maintainer",
+      "plugin": "maintenance",
+      "name": "skill-maintainer",
+      "directoryName": "skill-maintainer",
+      "path": "plugins/maintenance/skills/skill-maintainer",
+      "aliases": [
+        "maintenance:skill-maintainer"
+      ]
+    },
+    {
+      "id": "mattpocock-skills:ask-matt",
+      "plugin": "mattpocock-skills",
+      "name": "ask-matt",
+      "directoryName": "ask-matt",
+      "path": "plugins/mattpocock-skills/skills/ask-matt",
+      "aliases": []
+    },
+    {
+      "id": "mattpocock-skills:code-review",
+      "plugin": "mattpocock-skills",
+      "name": "code-review",
+      "directoryName": "code-review",
+      "path": "plugins/mattpocock-skills/skills/code-review",
+      "aliases": []
+    },
+    {
+      "id": "mattpocock-skills:codebase-design",
+      "plugin": "mattpocock-skills",
+      "name": "codebase-design",
+      "directoryName": "codebase-design",
+      "path": "plugins/mattpocock-skills/skills/codebase-design",
+      "aliases": []
+    },
+    {
+      "id": "mattpocock-skills:diagnosing-bugs",
+      "plugin": "mattpocock-skills",
+      "name": "diagnosing-bugs",
+      "directoryName": "diagnosing-bugs",
+      "path": "plugins/mattpocock-skills/skills/diagnosing-bugs",
+      "aliases": []
+    },
+    {
+      "id": "mattpocock-skills:domain-modeling",
+      "plugin": "mattpocock-skills",
+      "name": "domain-modeling",
+      "directoryName": "domain-modeling",
+      "path": "plugins/mattpocock-skills/skills/domain-modeling",
+      "aliases": []
+    },
+    {
+      "id": "mattpocock-skills:grill-me",
+      "plugin": "mattpocock-skills",
+      "name": "grill-me",
+      "directoryName": "grill-me",
+      "path": "plugins/mattpocock-skills/skills/grill-me",
+      "aliases": []
+    },
+    {
+      "id": "mattpocock-skills:grill-with-docs",
+      "plugin": "mattpocock-skills",
+      "name": "grill-with-docs",
+      "directoryName": "grill-with-docs",
+      "path": "plugins/mattpocock-skills/skills/grill-with-docs",
+      "aliases": []
+    },
+    {
+      "id": "mattpocock-skills:grilling",
+      "plugin": "mattpocock-skills",
+      "name": "grilling",
+      "directoryName": "grilling",
+      "path": "plugins/mattpocock-skills/skills/grilling",
+      "aliases": []
+    },
+    {
+      "id": "mattpocock-skills:handoff",
+      "plugin": "mattpocock-skills",
+      "name": "handoff",
+      "directoryName": "handoff",
+      "path": "plugins/mattpocock-skills/skills/handoff",
+      "aliases": []
+    },
+    {
+      "id": "mattpocock-skills:implement",
+      "plugin": "mattpocock-skills",
+      "name": "implement",
+      "directoryName": "implement",
+      "path": "plugins/mattpocock-skills/skills/implement",
+      "aliases": []
+    },
+    {
+      "id": "mattpocock-skills:improve-codebase-architecture",
+      "plugin": "mattpocock-skills",
+      "name": "improve-codebase-architecture",
+      "directoryName": "improve-codebase-architecture",
+      "path": "plugins/mattpocock-skills/skills/improve-codebase-architecture",
+      "aliases": []
+    },
+    {
+      "id": "mattpocock-skills:pr",
+      "plugin": "mattpocock-skills",
+      "name": "pr",
+      "directoryName": "pr",
+      "path": "plugins/mattpocock-skills/skills/pr",
+      "aliases": []
+    },
+    {
+      "id": "mattpocock-skills:prototype",
+      "plugin": "mattpocock-skills",
+      "name": "prototype",
+      "directoryName": "prototype",
+      "path": "plugins/mattpocock-skills/skills/prototype",
+      "aliases": []
+    },
+    {
+      "id": "mattpocock-skills:research",
+      "plugin": "mattpocock-skills",
+      "name": "research",
+      "directoryName": "research",
+      "path": "plugins/mattpocock-skills/skills/research",
+      "aliases": []
+    },
+    {
+      "id": "mattpocock-skills:retro",
+      "plugin": "mattpocock-skills",
+      "name": "retro",
+      "directoryName": "retro",
+      "path": "plugins/mattpocock-skills/skills/retro",
+      "aliases": []
+    },
+    {
+      "id": "mattpocock-skills:tdd",
+      "plugin": "mattpocock-skills",
+      "name": "tdd",
+      "directoryName": "tdd",
+      "path": "plugins/mattpocock-skills/skills/tdd",
+      "aliases": []
+    },
+    {
+      "id": "mattpocock-skills:teach",
+      "plugin": "mattpocock-skills",
+      "name": "teach",
+      "directoryName": "teach",
+      "path": "plugins/mattpocock-skills/skills/teach",
+      "aliases": []
+    },
+    {
+      "id": "mattpocock-skills:to-spec",
+      "plugin": "mattpocock-skills",
+      "name": "to-spec",
+      "directoryName": "to-spec",
+      "path": "plugins/mattpocock-skills/skills/to-spec",
+      "aliases": []
+    },
+    {
+      "id": "mattpocock-skills:triage",
+      "plugin": "mattpocock-skills",
+      "name": "triage",
+      "directoryName": "triage",
+      "path": "plugins/mattpocock-skills/skills/triage",
+      "aliases": []
+    },
+    {
+      "id": "mattpocock-skills:writing-for-agents",
+      "plugin": "mattpocock-skills",
+      "name": "writing-for-agents",
+      "directoryName": "writing-for-agents",
+      "path": "plugins/mattpocock-skills/skills/writing-for-agents",
+      "aliases": []
+    },
+    {
+      "id": "workflow:long-running-goal",
+      "plugin": "workflow",
+      "name": "long-running-goal",
+      "directoryName": "long-running-goal",
+      "path": "plugins/workflow/skills/long-running-goal",
+      "aliases": []
+    },
+    {
+      "id": "workflow:orchestrate-subagents",
+      "plugin": "workflow",
+      "name": "orchestrate-subagents",
+      "directoryName": "orchestrate-subagents",
+      "path": "plugins/workflow/skills/orchestrate-subagents",
+      "aliases": []
+    },
+    {
+      "id": "workflow:prompt-strategy-loop",
+      "plugin": "workflow",
+      "name": "prompt-strategy-loop",
+      "directoryName": "prompt-strategy-loop",
+      "path": "plugins/workflow/skills/prompt-strategy-loop",
+      "aliases": []
+    },
+    {
+      "id": "workflow:scope-discipline",
+      "plugin": "workflow",
+      "name": "scope-discipline",
+      "directoryName": "scope-discipline",
+      "path": "plugins/workflow/skills/scope-discipline",
+      "aliases": []
+    },
+    {
+      "id": "workflow:sop",
+      "plugin": "workflow",
+      "name": "sop",
+      "directoryName": "sop",
+      "path": "plugins/workflow/skills/sop",
+      "aliases": []
+    },
+    {
+      "id": "workflow:summary-in-html",
+      "plugin": "workflow",
+      "name": "summary-in-html",
+      "directoryName": "summary-in-html",
+      "path": "plugins/workflow/skills/summary-in-html",
+      "aliases": []
+    }
+  ],
+  "attributionOverlays": [
+    {
+      "plugin": "maintenance",
+      "path": "plugins/maintenance/.codex-plugin/skill-watcher.json",
+      "data": {
+        "schema_version": 1,
+        "skills": {
+          "watcher:doc-alignment": {
+            "role": "discipline",
+            "logical_group": "implicit-primitives",
+            "aliases": [
+              {
+                "value": "watcher:doc-alignment",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "doc-alignment",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "watcher doc",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "documentation alignment",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "maintenance:doc-alignment",
+                "kind": "skill_name",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          },
+          "watcher:housekeeping": {
+            "role": "specialized",
+            "logical_group": "implicit-primitives",
+            "aliases": [
+              {
+                "value": "watcher:housekeeping",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "housekeeping",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "remove disposable artifacts",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "clear generated caches",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "maintenance:housekeeping",
+                "kind": "skill_name",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          },
+          "watcher:skill-compressor": {
+            "role": "specialized",
+            "logical_group": "implicit-primitives",
+            "aliases": [
+              {
+                "value": "watcher:skill-compressor",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "skill-compressor",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "skill compressor",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "skill compression",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "maintenance:skill-compressor",
+                "kind": "skill_name",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          },
+          "watcher:skill-maintainer": {
+            "role": "specialized",
+            "logical_group": "implicit-primitives",
+            "aliases": [
+              {
+                "value": "watcher:skill-maintainer",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "skill-maintainer",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "skill maintainer",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "skill watcher",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "maintenance:skill-maintainer",
+                "kind": "skill_name",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          }
+        },
+        "legacy_names": {
+          "doc-watcher:doc-alignment": "watcher:doc-alignment",
+          "doc-watcher:housekeeping": "watcher:housekeeping",
+          "skill-watcher:skill-compressor": "watcher:skill-compressor",
+          "skill-watcher:skill-maintainer": "watcher:skill-maintainer",
+          "maintenance:doc-alignment": "watcher:doc-alignment",
+          "maintenance:housekeeping": "watcher:housekeeping",
+          "maintenance:skill-compressor": "watcher:skill-compressor",
+          "maintenance:skill-maintainer": "watcher:skill-maintainer"
+        }
+      }
+    },
+    {
+      "plugin": "mattpocock-skills",
+      "path": "plugins/mattpocock-skills/.codex-plugin/skill-watcher.json",
+      "data": {
+        "schema_version": 1,
+        "skills": {
+          "mattpocock-skills:ask-matt": {
+            "role": "entrypoint",
+            "logical_group": "explicit-workflows",
+            "aliases": [
+              {
+                "value": "mattpocock-skills:ask-matt",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "ask-matt",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "ask matt",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "which matt pocock skill",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          },
+          "mattpocock-skills:code-review": {
+            "role": "specialized",
+            "logical_group": "implicit-primitives",
+            "aliases": [
+              {
+                "value": "mattpocock-skills:code-review",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "code-review",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "code review",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "review since",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          },
+          "mattpocock-skills:codebase-design": {
+            "role": "discipline",
+            "logical_group": "implicit-primitives",
+            "aliases": [
+              {
+                "value": "mattpocock-skills:codebase-design",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "codebase-design",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "codebase design",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "deep modules",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          },
+          "mattpocock-skills:diagnosing-bugs": {
+            "role": "discipline",
+            "logical_group": "implicit-primitives",
+            "aliases": [
+              {
+                "value": "mattpocock-skills:diagnosing-bugs",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "diagnosing-bugs",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "diagnose",
+                "kind": "legacy",
+                "match": "token"
+              },
+              {
+                "value": "diagnose this",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "debug this",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          },
+          "mattpocock-skills:domain-modeling": {
+            "role": "discipline",
+            "logical_group": "implicit-primitives",
+            "aliases": [
+              {
+                "value": "mattpocock-skills:domain-modeling",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "domain-modeling",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "domain modeling",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "domain model",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          },
+          "mattpocock-skills:grill-me": {
+            "role": "wrapper",
+            "logical_group": "explicit-workflows",
+            "aliases": [
+              {
+                "value": "mattpocock-skills:grill-me",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "grill-me",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "grill me",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": [
+              "mattpocock-skills:grilling"
+            ]
+          },
+          "mattpocock-skills:grill-with-docs": {
+            "role": "wrapper",
+            "logical_group": "explicit-workflows",
+            "aliases": [
+              {
+                "value": "mattpocock-skills:grill-with-docs",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "grill-with-docs",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "grill with docs",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": [
+              "mattpocock-skills:grilling",
+              "mattpocock-skills:domain-modeling"
+            ]
+          },
+          "mattpocock-skills:grilling": {
+            "role": "discipline",
+            "logical_group": "implicit-primitives",
+            "aliases": [
+              {
+                "value": "mattpocock-skills:grilling",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "grilling",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "grilling session",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          },
+          "mattpocock-skills:handoff": {
+            "role": "specialized",
+            "logical_group": "explicit-workflows",
+            "aliases": [
+              {
+                "value": "mattpocock-skills:handoff",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "handoff",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "handoff document",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          },
+          "mattpocock-skills:implement": {
+            "role": "specialized",
+            "logical_group": "explicit-workflows",
+            "aliases": [
+              {
+                "value": "mattpocock-skills:implement",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "implement",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "implement tickets",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "implement spec",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": [
+              "mattpocock-skills:code-review"
+            ]
+          },
+          "mattpocock-skills:improve-codebase-architecture": {
+            "role": "wrapper",
+            "logical_group": "explicit-workflows",
+            "aliases": [
+              {
+                "value": "mattpocock-skills:improve-codebase-architecture",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "improve-codebase-architecture",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "improve codebase architecture",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "improve architecture",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "architecture review",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": [
+              "mattpocock-skills:codebase-design"
+            ]
+          },
+          "mattpocock-skills:pr": {
+            "role": "specialized",
+            "logical_group": "implicit-primitives",
+            "aliases": [
+              {
+                "value": "mattpocock-skills:pr",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "write a pr body",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "pull request body",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          },
+          "mattpocock-skills:prototype": {
+            "role": "specialized",
+            "logical_group": "implicit-primitives",
+            "aliases": [
+              {
+                "value": "mattpocock-skills:prototype",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "prototype",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "prototype this",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "throwaway prototype",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          },
+          "mattpocock-skills:research": {
+            "role": "specialized",
+            "logical_group": "implicit-primitives",
+            "aliases": [
+              {
+                "value": "mattpocock-skills:research",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "research",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "research this",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "primary source research",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          },
+          "mattpocock-skills:retro": {
+            "role": "specialized",
+            "logical_group": "explicit-workflows",
+            "aliases": [
+              {
+                "value": "mattpocock-skills:retro",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "/retro",
+                "kind": "phrase",
+                "match": "token"
+              }
+            ],
+            "supporting_skills": []
+          },
+          "mattpocock-skills:tdd": {
+            "role": "specialized",
+            "logical_group": "implicit-primitives",
+            "aliases": [
+              {
+                "value": "mattpocock-skills:tdd",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "tdd",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "test-driven",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "red-green-refactor",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          },
+          "mattpocock-skills:teach": {
+            "role": "specialized",
+            "logical_group": "explicit-workflows",
+            "aliases": [
+              {
+                "value": "mattpocock-skills:teach",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "teach me",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          },
+          "mattpocock-skills:to-spec": {
+            "role": "specialized",
+            "logical_group": "explicit-workflows",
+            "aliases": [
+              {
+                "value": "mattpocock-skills:to-spec",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "to-spec",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "mattpocock-skills:to-prd",
+                "kind": "legacy",
+                "match": "phrase"
+              },
+              {
+                "value": "to-prd",
+                "kind": "legacy",
+                "match": "token"
+              },
+              {
+                "value": "to spec",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "write spec",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "to prd",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "write PRD",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          },
+          "mattpocock-skills:triage": {
+            "role": "specialized",
+            "logical_group": "explicit-workflows",
+            "aliases": [
+              {
+                "value": "mattpocock-skills:triage",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "triage",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "triage issues",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          },
+          "mattpocock-skills:writing-for-agents": {
+            "role": "discipline",
+            "logical_group": "implicit-primitives",
+            "aliases": [
+              {
+                "value": "mattpocock-skills:writing-for-agents",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "writing-for-agents",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "mattpocock-skills:writing-great-skills",
+                "kind": "legacy",
+                "match": "phrase"
+              },
+              {
+                "value": "writing-great-skills",
+                "kind": "legacy",
+                "match": "token"
+              },
+              {
+                "value": "write-a-skill",
+                "kind": "legacy",
+                "match": "token"
+              },
+              {
+                "value": "writing for agents",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "write a skill",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          }
+        },
+        "legacy_names": {
+          "mattpocock-skills:diagnose": "mattpocock-skills:diagnosing-bugs",
+          "mattpocock-skills:to-prd": "mattpocock-skills:to-spec",
+          "mattpocock-skills:write-a-skill": "mattpocock-skills:writing-for-agents",
+          "mattpocock-skills:writing-great-skills": "mattpocock-skills:writing-for-agents"
+        }
+      }
+    },
+    {
+      "plugin": "workflow",
+      "path": "plugins/workflow/.codex-plugin/skill-watcher.json",
+      "data": {
+        "schema_version": 1,
+        "skills": {
+          "workflow:long-running-goal": {
+            "role": "entrypoint",
+            "logical_group": "explicit-workflows",
+            "aliases": [
+              {
+                "value": "workflow:long-running-goal",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "long-running-goal",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "long running goal",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "long-running goal",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "long-running goal sequence",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "umbrella long-running goal",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          },
+          "workflow:orchestrate-subagents": {
+            "role": "specialized",
+            "logical_group": "explicit-workflows",
+            "aliases": [
+              {
+                "value": "workflow:orchestrate-subagents",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "orchestrate-subagents",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "orchestrate subagents",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          },
+          "workflow:prompt-strategy-loop": {
+            "role": "specialized",
+            "logical_group": "implicit-primitives",
+            "aliases": [
+              {
+                "value": "workflow:prompt-strategy-loop",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "prompt-strategy-loop",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "prompt strategy loop",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "prompt loop",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "strategy loop",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          },
+          "workflow:scope-discipline": {
+            "role": "discipline",
+            "logical_group": "explicit-workflows",
+            "aliases": [
+              {
+                "value": "workflow:scope-discipline",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "scope-discipline",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "scope discipline",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          },
+          "workflow:sop": {
+            "role": "specialized",
+            "logical_group": "implicit-primitives",
+            "aliases": [
+              {
+                "value": "workflow:sop",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "sop",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "standard operating procedure",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "standard procedure",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "\u6807\u51c6\u6d41\u7a0b",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "\u6807\u51c6\u5904\u7406\u6d41\u7a0b",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          },
+          "workflow:summary-in-html": {
+            "role": "specialized",
+            "logical_group": "implicit-primitives",
+            "aliases": [
+              {
+                "value": "workflow:summary-in-html",
+                "kind": "skill_name",
+                "match": "phrase"
+              },
+              {
+                "value": "summary-in-html",
+                "kind": "slug",
+                "match": "token"
+              },
+              {
+                "value": "summary in html",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "html summary",
+                "kind": "phrase",
+                "match": "phrase"
+              },
+              {
+                "value": "developer summary",
+                "kind": "phrase",
+                "match": "phrase"
+              }
+            ],
+            "supporting_skills": []
+          }
+        },
+        "legacy_names": {
+          "personal-skills:long-run-goal": "workflow:long-running-goal",
+          "workflow:long-run-goal": "workflow:long-running-goal"
+        }
+      }
+    }
+  ]
+}

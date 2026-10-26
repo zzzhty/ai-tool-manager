@@ -66,6 +66,8 @@ fn atm_command(env: &Env, arguments: &[&str]) -> Command {
         "OPENCLAW_HOME",
         "OPENCLAW_PROFILE",
         "PI_CODING_AGENT_DIR",
+        "ATM_ENGINE_SOURCE",
+        "ATM_BOOTSTRAP_PYTHON",
     ] {
         command.env_remove(key);
     }
@@ -723,244 +725,267 @@ fn environment_override_cannot_expose_or_change_shared_agent_skills() {
 }
 
 // ---------------------------------------------------------------------------
-// Embedded engine, watcher hook and maintenance-group delegation (unix fakes)
-// ---------------------------------------------------------------------------
-
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-mod engine_delegation {
+// Rust distribution: no interpreter or external engine is reachable.
+mod rust_distribution {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
     fn manager_home(env: &Env) -> PathBuf {
         env.home.path().join("test-atm-harness")
     }
 
-    fn fake_venv_python(env: &Env, assertions: &str, exit_code: i32) -> PathBuf {
-        let python = manager_home(env).join("venv/bin/python");
-        fs::create_dir_all(python.parent().unwrap()).unwrap();
-        fs::write(
-            &python,
-            format!("#!/bin/sh\n{assertions}\nexit {exit_code}\n"),
-        )
-        .unwrap();
-        fs::set_permissions(&python, fs::Permissions::from_mode(0o700)).unwrap();
-        python
-    }
-
-    fn touch_engine_entry(env: &Env) {
-        let cli = manager_home(env).join("repo/scripts/engine.py");
-        fs::create_dir_all(cli.parent().unwrap()).unwrap();
-        fs::write(&cli, b"# TEST_ONLY stub\n").unwrap();
-    }
-
-    fn touch_watcher_cli(env: &Env) {
-        let watcher = manager_home(env).join("repo/plugins/watcher/scripts/watcher");
-        fs::create_dir_all(watcher.parent().unwrap()).unwrap();
-        fs::write(&watcher, b"# TEST_ONLY stub\n").unwrap();
-    }
-
-    #[test]
-    fn engine_install_delegates_fixed_argv_and_propagates_exit_code() {
-        let env = Env::new();
-        touch_engine_entry(&env);
-        let home = manager_home(&env);
-        let cli = home.join("repo/scripts/engine.py").display().to_string();
-        let home = home.display().to_string();
-        fake_venv_python(
-            &env,
-            &format!(
-                r#"test "$1" = "{cli}" || exit 9
-test "$2" = "--home" || exit 9
-test "$3" = "{home}" || exit 9
-test "$4" = "install" || exit 9
-test "$5" = "codex" || exit 9
-test "$6" = "zcode" || exit 9
-test "$#" = 6 || exit 9"#
-            ),
-            7,
-        );
-        let output = atm(&env, &["install", "skills", "--harness", "codex,zcode"]);
-        assert_code(&output, 7);
-    }
-
-    #[test]
-    fn engine_verbs_map_to_refresh_check_doctor_and_repair_no_path() {
-        let env = Env::new();
-        touch_engine_entry(&env);
-        for (arguments, operation, extra) in [
-            (
-                vec!["update", "skills", "--harness", "codex"],
-                "refresh",
-                "",
-            ),
-            (vec!["check", "skills", "--harness", "codex"], "check", ""),
-            (
-                vec!["check", "skills", "--harness", "codex", "--strict"],
-                "doctor",
-                "",
-            ),
-            (
-                vec!["repair", "skills", "--harness", "codex"],
-                "repair",
-                "--no-path",
-            ),
-        ] {
-            // Recreate per case: assertions differ per operation.
-            let mut script = format!(
-                r#"test "$4" = "{operation}" || exit 9
-test "$5" = "codex" || exit 9"#
-            );
-            if !extra.is_empty() {
-                script.push_str(&format!(
-                    "\ntest \"${{#}}\" = 6 || exit 9\ntest \"$6\" = \"{extra}\" || exit 9"
-                ));
-            } else {
-                script.push_str("\ntest \"$#\" = 5 || exit 9");
-            }
-            script.push_str("\ntest \"$3\" != \"\" || exit 9");
-            fake_venv_python(&env, &script, 0);
-            let output = atm(&env, &arguments);
-            assert_ok(&output);
-        }
-    }
-
-    #[test]
-    fn unbootstrapped_engine_reports_bootstrap_guidance() {
-        let env = Env::new();
-        let output = atm(&env, &["install", "skills", "--harness", "codex"]);
-        assert_code(&output, 1);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(stderr.contains("HARNESS_NOT_INSTALLED"), "stderr: {stderr}");
-        assert!(stderr.contains("atm harness bootstrap"), "stderr: {stderr}");
-    }
-
-    #[test]
-    fn hooks_delegate_to_watcher_cli_with_apply_and_python() {
-        let env = Env::new();
-        touch_engine_entry(&env);
-        touch_watcher_cli(&env);
-        let home = manager_home(&env);
-        let watcher = home
-            .join("repo/plugins/watcher/scripts/watcher")
-            .display()
-            .to_string();
-        let python = home.join("venv/bin/python").display().to_string();
-        let repo = format!("{}/repo", home.display());
-        fake_venv_python(
-            &env,
-            &format!(
-                r#"test "$1" = "-B" || exit 9
-test "$2" = "{watcher}" || exit 9
-test "$3" = "skill" || exit 9
-test "$4" = "install-hook" || exit 9
-test "$5" = "--apply" || exit 9
-test "$6" = "--python" || exit 9
-test "$7" = "{python}" || exit 9
-test "$8" = "--repo-root" || exit 9
-test "$9" = "{repo}" || exit 9
-test "$#" = 9 || exit 9"#
-            ),
-            0,
-        );
-        assert_ok(&atm(&env, &["install", "hooks", "--harness", "codex"]));
-    }
-
-    #[test]
-    fn hooks_dry_run_omits_apply_and_check_maps_to_doctor() {
-        let env = Env::new();
-        touch_engine_entry(&env);
-        touch_watcher_cli(&env);
-        fake_venv_python(
-            &env,
-            r#"test "$4" = "install-hook" || exit 9
-test "$5" = "--python" || exit 9"#,
-            0,
-        );
-        assert_ok(&atm(
-            &env,
-            &["install", "hooks", "--harness", "codex", "--dry-run"],
-        ));
-        fake_venv_python(
-            &env,
-            r#"test "$4" = "uninstall-hook" || exit 9
-test "$5" = "--apply" || exit 9"#,
-            0,
-        );
-        assert_ok(&atm(&env, &["uninstall", "hooks", "--harness", "codex"]));
-        fake_venv_python(&env, r#"test "$4" = "doctor" || exit 9"#, 0);
-        assert_ok(&atm(&env, &["check", "hooks", "--harness", "codex"]));
-    }
-
-    #[test]
-    fn harness_bootstrap_runs_the_embed_materializer_via_base_python() {
-        let env = Env::new();
-        let sources = tempfile::tempdir().unwrap();
-        let embedded_path = sources.path().join("harness");
-        let script_path = embedded_path.join("scripts/atm_embed.py");
-        fs::create_dir_all(script_path.parent().unwrap()).unwrap();
-        fs::write(&script_path, b"# TEST_ONLY stub\n").unwrap();
-        fs::write(
-            script_path.parent().unwrap().join("engine.py"),
-            b"# TEST_ONLY stub\n",
-        )
-        .unwrap();
-        let embedded = embedded_path.display().to_string();
-        let script = script_path.display().to_string();
-        let base = sources.path().join("python3");
-        fs::write(
-            &base,
-            format!(
-                "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo Python 3.11.9; exit 0; fi\ntest \"$1\" = \"{script}\" || exit 9\ntest \"$2\" = \"bootstrap\" || exit 9\ntest \"$3\" = \"--source\" || exit 9\ntest \"$4\" = \"{embedded}\" || exit 9\ntest \"$5\" = \"--home\" || exit 9\ntest \"$6\" = \"{}\" || exit 9\ntest \"$#\" = 6 || exit 9\nexit 0\n",
-                manager_home(&env).display()
-            ),
-        )
-        .unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&base, fs::Permissions::from_mode(0o700)).unwrap();
-        let selected_home = manager_home(&env).display().to_string();
-        let output = atm_command(&env, &["harness", "bootstrap", "--home", &selected_home])
-            .env_remove("ATM_BOOTSTRAP_PYTHON")
-            .env("PATH", sources.path())
-            .env("ATM_ENGINE_SOURCE", &embedded)
-            .output()
+    fn payload(env: &Env) -> PathBuf {
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../harness")
+            .canonicalize()
             .unwrap();
-        assert_ok(&output);
+        let bundle = atm_core::distribution::source::load(&source).unwrap();
+        let target = env.sources.path().join("payload with spaces 测试");
+        fs::create_dir_all(&target).unwrap();
+        for directory in bundle.manifest["directories"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            fs::create_dir_all(target.join(directory.as_str().unwrap())).unwrap();
+        }
+        for (relative, bytes) in bundle.files {
+            let path = target.join(relative);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, bytes).unwrap();
+        }
+        fs::copy(
+            source.join("distribution-manifest.json"),
+            target.join("distribution-manifest.json"),
+        )
+        .unwrap();
+        target
     }
 
-    #[test]
-    fn harness_passthrough_forwards_verbatim_and_bounds_argv() {
-        let env = Env::new();
-        touch_engine_entry(&env);
-        fake_venv_python(
-            &env,
-            r#"test "$4" = "machine" || exit 9
-test "$5" = "--protocol" || exit 9
-test "$6" = "1" || exit 9
-test "$7" = "status" || exit 9"#,
-            0,
+    fn native(env: &Env, args: &[&str]) -> std::process::Output {
+        atm_command(env, args).env("PATH", "").output().unwrap()
+    }
+
+    fn bootstrap(env: &Env, source: &Path) {
+        assert_ok(
+            &atm_command(
+                env,
+                &["harness", "bootstrap", "--source", source.to_str().unwrap()],
+            )
+            .env("PATH", "")
+            .output()
+            .unwrap(),
         );
-        assert_ok(&atm(
-            &env,
-            &["harness", "--", "machine", "--protocol", "1", "status"],
-        ));
-        // A passthrough --home stays rejected to keep one home source.
-        let rejected = atm(&env, &["harness", "--", "--home", "/tmp/x", "status"]);
-        assert_code(&rejected, 1);
-        // Argv bounds are enforced before spawning anything.
-        let mut many: Vec<String> = (0..70).map(|index| format!("arg{index}")).collect();
-        let mut arguments = vec!["harness".to_owned(), "--".to_owned()];
-        arguments.append(&mut many);
-        let strings: Vec<&str> = arguments.iter().map(String::as_str).collect();
-        let oversized = atm(&env, &strings);
-        assert_code(&oversized, 1);
-        assert!(String::from_utf8_lossy(&oversized.stderr).contains("CLI_ARGUMENT"));
     }
 
     #[test]
-    fn harness_unknown_subcommand_is_rejected_without_spawning() {
+    fn static_lifecycle_uses_only_complete_offline_cache_without_python() {
         let env = Env::new();
-        let output = atm(&env, &["harness", "nope"]);
+        let source = payload(&env);
+        assert_ok(&native(&env, &["harness", "status", "--json"]));
+        assert!(!manager_home(&env).exists());
+        bootstrap(&env, &source);
+        assert!(!manager_home(&env).join("venv").exists());
+        fs::remove_dir_all(&source).unwrap();
+        assert_ok(&native(
+            &env,
+            &["harness", "plan", "install", "--harness", "zcode"],
+        ));
+        assert!(!env.home.path().join(".zcode").exists());
+        assert_ok(&native(&env, &["install", "skills", "--harness", "zcode"]));
+        assert_ok(&native(&env, &["update", "skills", "--harness", "zcode"]));
+        assert_ok(&native(
+            &env,
+            &["check", "skills", "--harness", "zcode", "--strict"],
+        ));
+        let user_file = env.home.path().join(".zcode/user-file.txt");
+        fs::write(&user_file, "TEST_ONLY user file").unwrap();
+        assert_ok(&native(
+            &env,
+            &["uninstall", "skills", "--harness", "zcode"],
+        ));
+        assert_eq!(
+            fs::read_to_string(user_file).unwrap(),
+            "TEST_ONLY user file"
+        );
+        assert!(!env.home.path().join(".zcode/AGENTS.md").exists());
+    }
+
+    #[test]
+    fn native_update_and_remove_refuse_modified_owned_files() {
+        let env = Env::new();
+        let source = payload(&env);
+        bootstrap(&env, &source);
+        assert_ok(&native(&env, &["install", "skills", "--harness", "zcode"]));
+        let instructions = env.home.path().join(".zcode/AGENTS.md");
+        fs::write(&instructions, "TEST_ONLY user revision").unwrap();
+        assert_code(
+            &native(&env, &["update", "skills", "--harness", "zcode"]),
+            1,
+        );
+        assert_code(
+            &native(&env, &["uninstall", "skills", "--harness", "zcode"]),
+            1,
+        );
+        assert_eq!(
+            fs::read_to_string(&instructions).unwrap(),
+            "TEST_ONLY user revision"
+        );
+    }
+
+    #[test]
+    fn adoption_preview_does_not_initialize_an_uninstalled_manager() {
+        let env = Env::new();
+        let source = payload(&env);
+        let home = env.home.path().join("preview manager 测试");
+        let output = native(
+            &env,
+            &[
+                "harness",
+                "adopt",
+                "--dry-run",
+                "--source",
+                source.to_str().unwrap(),
+                "--home",
+                home.to_str().unwrap(),
+            ],
+        );
         assert_code(&output, 1);
-        assert!(String::from_utf8_lossy(&output.stderr).contains("CLI_COMMAND"));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("HARNESS_LEGACY_INVALID"));
+        assert!(!home.exists());
+        assert!(!env.home.path().join(".codex").exists());
+    }
+
+    #[test]
+    fn bootstrap_with_explicit_home_does_not_enable_hooks_or_create_shared_venv() {
+        let env = Env::new();
+        let source = payload(&env);
+        let home = env.home.path().join("chosen manager 测试");
+        assert_ok(&native(
+            &env,
+            &[
+                "harness",
+                "bootstrap",
+                "--source",
+                source.to_str().unwrap(),
+                "--home",
+                home.to_str().unwrap(),
+            ],
+        ));
+        assert!(!manager_home(&env).exists());
+        assert!(!home.join("venv").exists());
+        assert!(!env.home.path().join(".codex/hooks.json").exists());
+        assert!(!env.home.path().join(".codex/config.toml").exists());
+        let missing = env.home.path().join("missing python");
+        assert_code(
+            &native(
+                &env,
+                &[
+                    "harness",
+                    "runtime",
+                    "prepare",
+                    "watcher",
+                    "--home",
+                    home.to_str().unwrap(),
+                    "--python",
+                    missing.to_str().unwrap(),
+                    "--offline",
+                ],
+            ),
+            1,
+        );
+        assert!(!env.home.path().join(".codex/hooks.json").exists());
+    }
+
+    #[test]
+    fn explicit_home_plan_respects_tool_root_overrides_without_writing_targets() {
+        let env = Env::new();
+        let source = payload(&env);
+        bootstrap(&env, &source);
+        let codex = env.sources.path().join("overridden Codex 测试");
+        let output = atm_command(
+            &env,
+            &[
+                "harness",
+                "plan",
+                "install",
+                "--harness",
+                "codex",
+                "--home",
+                manager_home(&env).to_str().unwrap(),
+            ],
+        )
+        .env("PATH", "")
+        .env("CODEX_HOME", &codex)
+        .output()
+        .unwrap();
+        assert_ok(&output);
+        let plan: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        let physical_parent = codex.parent().unwrap().canonicalize().unwrap();
+        assert!(plan["files"].as_array().unwrap().iter().any(|path| {
+            let path = Path::new(path.as_str().unwrap());
+            let root = path.parent().unwrap();
+            // Windows may expand RUNNER~1 or use a different path prefix.
+            // Compare the existing parent identity and exact requested leaf.
+            path.file_name().unwrap() == "AGENTS.md"
+                && root.file_name() == codex.file_name()
+                && root.parent().unwrap().canonicalize().unwrap() == physical_parent
+        }));
+        assert!(!codex.exists());
+        assert!(!env.home.path().join(".codex").exists());
+    }
+
+    #[test]
+    fn malformed_payload_and_unknown_legacy_commands_never_launch_an_engine() {
+        let env = Env::new();
+        let payload = env.sources.path().join("invalid");
+        fs::create_dir_all(&payload).unwrap();
+        fs::write(payload.join("distribution-manifest.json"), "{}").unwrap();
+        assert_code(
+            &native(
+                &env,
+                &[
+                    "harness",
+                    "bootstrap",
+                    "--source",
+                    payload.to_str().unwrap(),
+                ],
+            ),
+            1,
+        );
+        assert!(!manager_home(&env).exists());
+        for args in [
+            vec!["harness", "--", "machine", "--protocol", "1", "status"],
+            vec!["harness", "--", "update"],
+            vec!["harness", "nope"],
+        ] {
+            let output = native(&env, &args);
+            assert_code(&output, 1);
+            assert!(String::from_utf8_lossy(&output.stderr).contains("CLI_COMMAND"));
+        }
+        assert!(!manager_home(&env).exists());
+    }
+
+    #[test]
+    fn runtime_preparation_requires_explicit_absolute_interpreter_before_mutation() {
+        let env = Env::new();
+        for args in [
+            vec!["harness", "runtime", "prepare", "watcher"],
+            vec![
+                "harness", "runtime", "prepare", "watcher", "--python", "python3",
+            ],
+            vec![
+                "harness",
+                "runtime",
+                "prepare",
+                "watcher",
+                "--python",
+                "relative/python",
+            ],
+        ] {
+            let output = native(&env, &args);
+            assert_code(&output, 1);
+            assert!(String::from_utf8_lossy(&output.stderr).contains("CLI_ARGUMENT"));
+        }
+        assert!(!manager_home(&env).exists());
     }
 }

@@ -1,6 +1,7 @@
 //! Local-key core. Public views never contain saved keys or configuration bytes.
 pub mod application;
 pub mod batch;
+pub mod distribution;
 mod error;
 pub mod harness;
 pub mod harness_embed;

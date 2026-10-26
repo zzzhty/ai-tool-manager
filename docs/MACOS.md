@@ -28,9 +28,11 @@ ACL、资源叉或超出预算的元数据。内容、文件身份和时间戳�
 替换之间仍有外部写入竞态，不保证跨文件事务。APFS 大小写语义按文件身份处理。
 
 工具路径尊重 HOME 和各工具显式环境变量，不扫描登录凭据或 shell dotfiles。Codex
-可执行文件及帐号目录须由用户指定为绝对路径。harness 引擎已内置于 ATM（`atm harness`
-命令组；首次 bootstrap 需联网安装 Python 工具依赖），按既有 machine
-能力与明确确认调用；macOS 仅补 POSIX 进程组清理，不增加生命周期操作或后台轮询。
+可执行文件及帐号目录须由用户指定为绝对路径。harness 分发由 ATM 内部 Rust service
+直接执行，CLI 与 GUI 共用；bootstrap/sync 和静态技能无需 Python。仅显式选定的 Python
+payload 通过绝对解释器路径准备独立 venv；准备不会启用 hooks。旧 Python 状态交接使用
+`atm harness adopt`，中断恢复使用 `atm harness recover`。本次 Rust 分发迁移尚不能由
+此前 macOS 原生 CI 通过记录推导为已验证；没有新增后台轮询或真实安装切换。
 
 ## 可复现入口
 

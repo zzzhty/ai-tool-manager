@@ -1,2 +1,0 @@
-# Watcher uses the shared atm-harness tooling dependencies.
--r ../../requirements.txt

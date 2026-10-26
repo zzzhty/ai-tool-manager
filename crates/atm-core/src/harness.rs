@@ -1,22 +1,11 @@
-//! Read-only atm-harness manager snapshots. Only `status --json` is ever invoked:
-//! a recorded-state-only command by the atm-harness public contract (no Git,
-//! no Codex, no network, no runtime repair). No lifecycle mutation and no polling.
-use crate::{usage::bounded_json, Error, Result};
+//! Read-only views of Rust-owned harness distribution receipts.
+//! Recorded status does not execute Python, clients, network requests, or repair.
+use crate::{Error, Result};
 use serde::Serialize;
 use serde_json::Value;
-use std::{
-    io::Read,
-    path::{Path, PathBuf},
-    process::{Command, Stdio},
-    sync::mpsc,
-    thread,
-    time::{Duration, Instant},
-};
+use std::path::{Path, PathBuf};
 
 pub const MANAGER_HOME_ENV: &str = "ATM_HOME";
-/// Bounded one-shot read; a wedged CLI is killed, never retried.
-const QUERY_TIMEOUT: Duration = Duration::from_secs(10);
-const MAX_STDERR_BYTES: usize = 64 * 1024;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -60,49 +49,6 @@ fn user_home() -> Result<PathBuf> {
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())
         .ok_or_else(|| Error::new("HARNESS_HOME", "无法确定用户主目录，无法定位 atm-harness。"))
-}
-
-fn checked_file(path: &Path, code: &'static str, message: &'static str) -> Result<PathBuf> {
-    if !path.is_absolute() || path.to_string_lossy().chars().any(char::is_control) {
-        return Err(Error::new(code, message));
-    }
-    if !path.is_file() {
-        return Err(Error::new(
-            "HARNESS_NOT_INSTALLED",
-            "未检测到可用的 harness 引擎安装；请先运行 atm harness bootstrap 后再次查询。",
-        ));
-    }
-    Ok(path.to_path_buf())
-}
-
-/// The venv interpreter plus the checkout CLI: both plain native files, no shell,
-/// no cmd/bat shim. status needs no bootstrap shim, so direct invocation is equivalent.
-pub fn invocation(manager_home: &Path) -> Result<(PathBuf, Vec<String>)> {
-    let guard = "atm-harness 路径无效。";
-    let python = checked_file(
-        &manager_home.join(if cfg!(windows) {
-            "venv/Scripts/python.exe"
-        } else {
-            "venv/bin/python"
-        }),
-        "HARNESS_NOT_INSTALLED",
-        guard,
-    )?;
-    let cli = checked_file(
-        &manager_home.join("repo/scripts/engine.py"),
-        "HARNESS_NOT_INSTALLED",
-        guard,
-    )?;
-    Ok((
-        python,
-        vec![
-            cli.to_string_lossy().into_owned(),
-            "--home".into(),
-            manager_home.to_string_lossy().into_owned(),
-            "status".into(),
-            "--json".into(),
-        ],
-    ))
 }
 
 fn string_field(value: &Value, key: &str) -> Option<String> {
@@ -180,176 +126,25 @@ pub fn parse(status: &Value, manager_home: &str, source: &str) -> Result<Harness
     })
 }
 
-/// Collects a bounded pipe in the background; the deadline loop never blocks past it.
-fn bounded_pipe(
-    reader: impl Read + Send + 'static,
-    cap: usize,
-) -> (mpsc::Receiver<Vec<u8>>, thread::JoinHandle<()>) {
-    let (sender, receiver) = mpsc::channel();
-    let handle = thread::spawn(move || {
-        let mut reader = reader;
-        let mut collected = Vec::new();
-        let mut chunk = [0u8; 8192];
-        loop {
-            match reader.read(&mut chunk) {
-                Ok(0) | Err(_) => break,
-                Ok(read) => {
-                    // One byte past the cap marks oversize for the bounded parser,
-                    // while the pipe keeps draining so the child can exit.
-                    let room = (cap + 1).saturating_sub(collected.len());
-                    if room > 0 {
-                        collected.extend_from_slice(&chunk[..read.min(room)]);
-                    }
-                }
-            }
-        }
-        let _ = sender.send(collected);
-    });
-    (receiver, handle)
-}
-
-/// Runs one bounded `status --json` query against a resolved manager home.
-pub fn query(manager_home: &Path) -> Result<HarnessStatusSnapshot> {
-    query_with_timeout(manager_home, QUERY_TIMEOUT)
-}
-
-/// Test seams may shrink the bound; it can never grow past the product limit.
-pub fn query_with_timeout(manager_home: &Path, timeout: Duration) -> Result<HarnessStatusSnapshot> {
-    if timeout.is_zero() || timeout > QUERY_TIMEOUT {
-        return Err(Error::new("HARNESS_TIMEOUT", "atm-harness 查询时限无效。"));
-    }
-    let (program, args) = invocation(manager_home)?;
-    let mut command = Command::new(&program);
-    command
-        .args(&args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000);
-    }
-    let mut child = command.spawn().map_err(|error| match error.kind() {
-        // The interpreter vanished between the existence check and exec.
-        std::io::ErrorKind::NotFound => Error::new(
-            "HARNESS_NOT_INSTALLED",
-            "未检测到可用的 harness 引擎安装；请先运行 atm harness bootstrap 后再次查询。",
-        ),
-        // A transient OS-level launch failure must not read as a missing install.
-        _ => Error::new(
-            "HARNESS_CLI_FAILED",
-            "无法启动 atm-harness 的工具解释器；请检查系统资源后重试。",
-        ),
-    })?;
-    #[cfg(windows)]
-    let _job = match crate::usage::process::WindowsJob::attach(&child) {
-        Ok(job) => job,
-        Err(_) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(Error::new(
-                "HARNESS_CLI_FAILED",
-                "无法限制 harness 子进程。",
-            ));
-        }
-    };
-    let stdout = child.stdout.take().ok_or(Error::new(
-        "HARNESS_CLI_FAILED",
-        "atm-harness 状态查询未能完成，未产生可读取的输出。",
-    ))?;
-    let stderr = child.stderr.take().ok_or(Error::new(
-        "HARNESS_CLI_FAILED",
-        "atm-harness 状态查询未能完成，未产生可读取的输出。",
-    ))?;
-    let (stdout_rx, stdout_task) = bounded_pipe(stdout, crate::usage::MAX_RESPONSE_BYTES);
-    let (stderr_rx, stderr_task) = bounded_pipe(stderr, MAX_STDERR_BYTES);
-    let deadline = Instant::now() + timeout;
-    let mut out = None;
-    let mut err = None;
-    while out.is_none() || err.is_none() {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            #[cfg(any(target_os = "linux", target_os = "macos"))]
-            unsafe {
-                libc::kill(-(child.id() as i32), libc::SIGKILL);
-            }
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(Error::new(
-                "HARNESS_TIMEOUT",
-                "atm-harness 状态查询超时，已终止；不会自动重试。",
-            ));
-        }
-        if out.is_none() {
-            out = stdout_rx.recv_timeout(remaining).ok();
-            continue;
-        }
-        err = stderr_rx.recv_timeout(remaining).ok();
-    }
-    let _ = (stdout_task.join(), stderr_task.join());
-    let status_ok = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status.success(),
-            Err(_) => break false,
-            Ok(None) => {}
-        }
-        if Instant::now() >= deadline {
-            #[cfg(any(target_os = "linux", target_os = "macos"))]
-            unsafe {
-                libc::kill(-(child.id() as i32), libc::SIGKILL);
-            }
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(Error::new(
-                "HARNESS_TIMEOUT",
-                "atm-harness 查询超时，已终止。",
-            ));
-        }
-        thread::sleep(Duration::from_millis(10));
-    };
-    let out = out.unwrap_or_default();
-    let payload = bounded_json(&out).ok();
-    if !status_ok {
-        // A structured runtime_unavailable object still identifies the product.
-        return match payload {
-            Some(payload)
-                if string_field(&payload, "product").as_deref() == Some("atm-harness") =>
-            {
-                Err(Error::new(
-                    "HARNESS_RUNTIME",
-                    "harness 引擎运行时不可用；请在终端运行 atm harness -- repair --rebuild 后重试。",
-                ))
-            }
-            _ => Err(Error::new(
-                "HARNESS_CLI_FAILED",
-                "atm-harness 状态查询返回失败；请在终端运行 atm harness status 核对。",
-            )),
-        };
-    }
-    let payload = payload.ok_or(Error::new(
-        "HARNESS_PROTOCOL",
-        "atm-harness 状态输出无法安全识别，已丢弃。",
-    ))?;
-    parse(&payload, &manager_home.to_string_lossy(), "recorded")
-}
-
-/// Resolves the manager home from the process environment without querying.
+/// Resolves the manager home without touching recorded state.
 pub fn manager_home_from_environment() -> Result<PathBuf> {
-    Ok(resolve_manager_home(
-        std::env::var_os(MANAGER_HOME_ENV).as_deref(),
-        &user_home()?,
-    ))
+    let home = resolve_manager_home(std::env::var_os(MANAGER_HOME_ENV).as_deref(), &user_home()?);
+    if !home.is_absolute() {
+        return Err(Error::new("HARNESS_HOME", "ATM_HOME 必须是绝对路径。"));
+    }
+    Ok(home)
 }
 
-/// Resolves the manager home from the process environment and runs one query.
+/// Read the Rust receipt directly. No process, interpreter, cache validation or repair.
+pub fn query(manager_home: &Path) -> Result<HarnessStatusSnapshot> {
+    let service = crate::distribution::Service::new(manager_home.to_path_buf(), user_home()?)?;
+    parse(
+        &service.status()?,
+        &manager_home.to_string_lossy(),
+        "recorded",
+    )
+}
+
 pub fn query_from_environment() -> Result<HarnessStatusSnapshot> {
-    let manager_home =
-        resolve_manager_home(std::env::var_os(MANAGER_HOME_ENV).as_deref(), &user_home()?);
-    query(&manager_home)
+    query(&manager_home_from_environment()?)
 }

@@ -1,153 +1,55 @@
-# Machine interface (protocol 1)
+# Rust harness application interface
 
-> **Vendored deployment**: this engine now ships inside the ATM repository.
-> The transport and protocol below are unchanged; the terminal entry point is
-> `atm harness ...` and the distribution is materialized (non-Git) into
-> `<home>/repo` by `scripts/atm_embed.py`, so the `repo/scripts/engine.py` path
-> contract still holds. `update`/`recover`/`repair --reclone` are refused in
-> embedded mode; upgrades arrive with ATM releases via `atm harness sync`.
+The Python `machine --protocol 1` subprocess transport is retired. CLI and desktop
+use `atm_core::distribution::Service` directly. `harness_machine` retains the typed
+GUI capability, diagnostic and confirmation boundary; it does not launch an engine.
+Past protocol envelopes and receipt identities remain historical evidence, not a
+fallback to an older executable. ADRs 0022 and 0027 record the previous design.
 
-ATM and other local clients integrate with the engine CLI, not its state files.
-The engine owns distribution, receipts, desired state, locks, update journals, recovery,
-and cleanup. The standalone CLI remains supported, including its shorthand and
-interactive confirmations.
+## Application service
 
-## Discovery and transport
+`Service` owns source validation, immutable content cache, target planning,
+receipt ownership, locks, journaled apply/recovery, optional payload environments
+and hook configuration. The CLI presents the same service through:
 
-Run the verified engine executable as an argument vector, never a shell string:
+- `atm harness bootstrap|sync|status [--home ABS_PATH]`
+- `atm harness plan <install|refresh|remove|repair> --harness ID[,ID...]`
+- `atm install|update|uninstall|repair skills --harness ID[,ID...] [--dry-run]`
+- `atm harness adopt --dry-run` for a read-only handoff plan, `atm harness adopt`
+  and `atm harness recover` for explicit handoff/recovery
+- `atm harness runtime prepare GROUP --python ABS_PATH [--external-venv ABS_PATH] [--offline]`
+- `atm install|uninstall|check hooks --harness codex`
 
-```text
-engine.py [--home PATH] machine --protocol 1 capabilities
-engine.py [--home PATH] machine --protocol 1 status
-engine.py [--home PATH] machine --protocol 1 check [--harness ID ...]
-engine.py [--home PATH] machine --protocol 1 doctor [--harness ID ...]
-engine.py [--home PATH] machine --protocol 1 install --harness ID [--harness ID ...] --confirm
-engine.py [--home PATH] machine --protocol 1 refresh --harness ID [--harness ID ...] --confirm
-engine.py [--home PATH] machine --protocol 1 remove --harness ID [--harness ID ...] --confirm
-engine.py [--home PATH] machine --protocol 1 repair --harness ID [--harness ID ...] --confirm
-```
+`harness --` parses only a bounded set of these known Rust operations. It cannot
+execute arbitrary argv, Python, shell commands or the retired machine protocol.
 
-The explicit protocol version is required. Capability detection, rather than the
-product's release version, determines compatibility: historic releases can share
-the same `VERSION`. An old CLI may reject `machine`; treat that as unavailable,
-never fall back to an unconfirmed lifecycle command. Probe before enabling
-controls. Do not interpret an unknown or malformed response as success.
+## GUI boundary
 
-Every machine response is one JSON object on stdout:
+Capabilities expose canonical registry harness IDs and operation descriptors with
+`supported`, `requiresConfirmation`, `explicitHarnesses` and optional `reason`.
+Supported mutations are install, refresh, remove and repair. They require a true
+confirmation plus explicit, valid, unique targets. Aliases resolving to the same
+target are rejected. An in-process gate avoids duplicate GUI execution; the service
+lock also serializes independent processes. Upgrade/handoff and recovery remain
+explicit terminal workflows. Demo mode continues to reject real mutations.
 
-```json
-{"protocolVersion":1,"operation":"status","ok":true,"result":{},"error":null}
-```
+Diagnostics return `{operation, passed, exitCode}`. The service checks recorded
+owned files, shared configuration, content cache and any enabled hook runtime;
+static distributions have no Python prerequisite. Errors propagate through the
+existing typed error view. There is no child-process log parser or engine timeout.
+Optional Python payload provisioning owns its bounded process handling separately.
 
-Failures use `ok: false`, `error: {"code": "...", "message": "..."}` and a
-nonzero exit code. `result` may still contain diagnostics. Invalid requests can
-have a null operation. Codes are:
+## Recorded observations
 
-- `invalid_request`: exit 2, malformed or unbounded request
-- `unsupported_protocol`: exit 2, unsupported version
-- `confirmation_required`: exit 3, missing confirmation or interactive-only work
-- `busy`: exit 4, another atm-harness lifecycle mutation holds the existing lock
-- `operation_failed`: exit 1, runtime, state, ownership, check, or lifecycle failure
+`harness::query` reads the service's recorded status and projects only the fields
+shown by the GUI. Status includes product `atm-harness`, `manager`,
+`desiredHarnesses`, `harnessReceipts`, `operation`, `observation: recorded-state-only`
+and `worktreeClean: null`. A missing manager is not initialized. Unknown recorded
+information remains unknown. Pending journal recovery is visible as degraded state.
+A ready receipt is not a live-health claim.
 
-Human diagnostics are not a parsing API. Child stdout/stderr are captured into
-`result` instead of contaminating the outer JSON stream. Process startup failures
-before the machine adapter loads (for example, a missing checkout/interpreter)
-can still be ordinary CLI failures; clients must handle missing/invalid JSON.
-
-## Capabilities and observations
-
-`capabilities.result` contains `protocolVersion`, canonical `harnesses`, an
-`operations` object keyed by operation, `instructionReplacement:
-"interactive-only"`, and `statusObservation: "recorded-state-only"`.
-Each operation describes `supported`, `requiresConfirmation`, and
-`explicitHarnesses` (whether explicit harness targets are mandatory).
-Unsupported operations also have a `reason`.
-
-`status.result` has exactly the existing `atm harness status --json` recorded-state
-payload, including `desiredHarnesses`, `manager`, `harnessReceipts`, `operation`,
-`stateKind`, and `observation`. It does not validate live files, enumerate installed
-client applications, or claim health. `worktreeClean` remains null. Missing state
-is not initialized. A recorded interrupted operation remains visible for the
-standalone recovery workflow.
-
-`check` and `doctor` invoke their existing read-only validation paths. Doctor
-fails on warnings as before. They neither repair nor bootstrap a runtime.
-With no harness targets they validate the installed set. Their results, and
-lifecycle results, are `{harnesses, exitCode, stdout, stderr, stdoutTruncated, stderrTruncated}`; an empty harnesses
-array on a check means the normal installed-set selection, not zero checked.
-
-## Confirmation and scope
-
-Install, refresh, remove and scoped repair require one or more explicit `--harness` arguments.
-Aliases are canonicalized and duplicates removed. There is no implicit default,
-`--all`, arbitrary forwarded argument string, path override, migration option,
-purge, or `--yes` in the machine protocol. ATM should show the operation and exact
-selected targets, obtain the user's confirmation, then invoke once with
-`--confirm`. Confirmation applies only to that invocation and its selected
-harnesses. Repeated button clicks must not queue duplicate writes.
-
-For install/refresh, confirmation covers missing instruction creation, skill
-projections and the existing exact managed cleanup rules. It does **not** grant
-permission to replace arbitrary existing instructions. All selected instruction
-targets are preflighted inside the existing manager lock before distribution or
-state mutation. A target requiring live replacement consent returns
-`confirmation_required` before any selected harness is applied. The lock file
-may be created/acquired; it is not a distribution or state migration.
-
-The child instruction preflight also runs noninteractively, and existing
-source/target snapshot revalidation still applies immediately before writing.
-Existing exact registry-peer/operation-journal provenance rules are unchanged.
-No general replacement consent token is introduced. `--yes` in the standalone
-CLI still cannot authorize arbitrary instruction replacement.
-
-Removal uses the same receipt validation, ownership checks, shared-resource
-retention and manager lock as standalone removal. The machine adapter never
-edits receipts or resources itself. Missing or unhealthy tooling is reported;
-there is no runtime bootstrap, checkout restoration or PATH repair as a side
-effect of machine calls.
-
-### Scoped repair
-
-`repair` is supported only with the existing healthy runtime and recorded
-checkout. It repairs selected recorded installed harnesses and manager launchers;
-it does not add harnesses. Its capability has
-`scope: "existing-runtime-checkout-selected-harnesses"`,
-`recoverySupported: false`, and `pathChanges: false`.
-
-An active operation journal is rejected before automatic recovery. All selected
-instruction targets are checked under the same repair lock before any launcher
-or harness writes. Runtime bootstrap, checkout replacement, inferred former-repo
-migration and PATH changes are disabled in this machine scope. Missing-runtime,
-missing-checkout and interrupted-update recovery remain standalone operations.
-Full machine recovery would require a stable-shim authorization contract and one
-continuous lock through restoration, bootstrap and journaled lifecycle work.
-
-## Current limits and client recovery
-
-Protocol 1 advertises update and recover as unsupported and returns
-`confirmation_required` without starting them, even with `--confirm`. Their
-checkout transitions, journal recovery and manager-wide effects require the
-standalone CLI until a bounded machine authorization path covers all phases.
-An update invokes target and rollback revisions that may not support this
-protocol, refreshes the entire desired set, can change registry-owned roots or
-materialization, and modifies PATH. A safe cross-version extension must validate
-both revisions, journal authorized full scope, and preflight final target plans;
-simply passing --yes or a noninteractive flag is insufficient.
-Never represent these controls as working GUI operations.
-
-Like the existing lifecycle, multi-harness application is not an atomic filesystem
-transaction. Initial replacement conflicts are caught before application, but a
-later I/O error, external race or failed validation can leave partial work. Treat
-any nonzero result as failure, display diagnostics and refresh recorded status.
-Do not retry automatically, modify state, erase a journal or bypass ownership
-checks. For busy results, let the existing operation finish before user retry.
-Use the standalone `atm harness status`, `atm harness -- check`, `atm harness -- repair` or `atm harness -- recover` as
-appropriate. A refresh should never be relabeled as update; it does not fetch.
-
-Diagnostic streams are drained concurrently and retain at most 64 KiB each, with
-truncation flags. The read-only runtime health probe times out after 30 seconds.
-Lifecycle cancellation/time budgets belong to the client owning the entire
-process tree. Terminating only the adapter does not establish that a descendant
-stopped mutating; after cancellation, report an unknown outcome and inspect
-status/lock before retry. The adapter does not impose an unsafe parent-only
-mutation timeout or automatically retry.
+Plans capture observations; apply validates them again under ownership and lock
+rules. User edits and unowned collisions stop writes. Journal recovery preserves
+conflicting later changes. The multi-file lifecycle is not a fully atomic transaction.
+Legacy state enters Rust ownership only through an explicit validated handoff;
+no ordinary read or installation silently adopts it.

@@ -12,37 +12,39 @@
 
 ## 内置技能分发引擎（harness）
 
-ATM 内置原 [oh-my-harness](https://github.com/zzzhty/oh-my-harness)（已归档）引擎源码（`harness/` 目录，Python，运行时产品标识为 atm-harness，旧收据通过显式 sync 收编），并以其为唯一的 harness 分发引擎：首次 `atm harness bootstrap` 将内嵌源码**物化**为 manager home（默认 `~/.atm`，尊重 `ATM_HOME`）内的非 git 分发 `<home>/repo`，并创建工具 venv（首次需联网安装 PyYAML/jsonschema，其余命令保持离线）。状态、收据、journal 与锁全部归 manager home 所有；完整引擎身份是 **engineIdentity**（涵盖 scripts、registry、agents 和插件）；原 **bundleIdentity** 仍只代表插件分发，更新随 ATM 版本发布——`atm harness sync` 重物化/收编旧 git 安装，原 update/recover/reclone 流程已退役。
+Harness 分发由 `atm-core::distribution::Service` 的 Rust 实现负责，CLI 与 GUI 调用同一 application service。`harness/` 保存声明式内容和可选 payload runtime；分发不调用 Python `machine.py`、`engine.py` 或隐藏 fallback。默认 manager home 为 `~/.atm`，可用绝对路径 `ATM_HOME` 覆盖。
 
-- 引擎按需读取**记录态快照**并探测 `machine --protocol 1 capabilities`，不轮询，不将记录就绪解释为实时健康。GUI 四个入口与 CLI 共用同一物化引擎。
-- `check` 校验安装，`doctor` 严格校验（警告视为失败），由用户主动点击触发。可能启动客户端子进程，不保证离线；界面仅呈现通过/发现问题及退出码，详细日志请在终端查看。
-- 生命周期操作按能力启用；用户必须选择明确 harness 目标并在预览对话框确认，每次执行前重新验证能力与目标，成功或失败后重新读取记录快照。确认只授权所选操作和目标，绝不自动同意指令文件替换等额外风险。
-- 输入采用固定 argv，关闭 stdin（GUI 路径）；记录/能力读取限时 10 秒，诊断与变更限时 120 秒，输出有大小上限；超时终止子进程树、不自动重试。错误只显示固定安全词汇，不展示子进程日志。
-- 信任边界：执行的是**随 ATM 发布**的引擎代码，不再随旧 `omh update` 变化。状态校验产品身份，机器响应校验协议版本与操作。`--demo` 仅返回 TEST_ONLY 快照，所有真实引擎操作禁用。
+- `atm harness bootstrap` 校验版本化 manifest 和每个内容摘要，生成 canonical catalog JSON，再缓存选定发布内容；`sync` 更新缓存引用。两者都不需要 Python、不下载解释器、不启用 hooks。完整缓存可离线安装、更新、卸载静态 skills。
+- Rust 拥有来源校验、版本锁定、缓存、计划、应用、适配器、receipt、锁及 journal 恢复。一个物理目标只有一个 owner；同名外来文件和用户修改会阻止变更，不按文件名猜测接管。跨文件操作由 journal 保护，不宣称完全原子；中断后显式执行 `atm harness recover`。
+- 状态查询只读记录，不创建安装、不探测 Python、不解释为实时健康。主动 `check`/`doctor` 检查已记录文件与缓存；有已启用 hook 时也检查该已准备 runtime。GUI 仍要求明确目标与一次操作确认。
+- Python 只属于声明了它的 skill/hook payload。`runtime prepare` 需要显式解释器绝对路径，按依赖组和内容版本创建最终路径 venv，检查成功后才切换引用。外部 venv 只验证；不修改项目 `.venv` 或全局 Python。离线缺 wheel/依赖会明确报错，旧有效环境保留。
+- Watcher 自动采集、事件和报告 helper 位于 `harness/runtimes/watcher/`，只读 Rust catalog 快照，不扫描整仓或导入 Python 安装器。四个交互工作流保留在 `plugins/maintenance/`；历史 `watcher:<skill>` 身份与 attribution overlays 保持可读，用户日志不改写。准备 runtime 与启用 hook 是两个命令；卸载保留日志、报告和用户文件。
+- 旧 Python 状态只能通过显式 `atm harness adopt` 一次性交接。普通 bootstrap/sync 不自动收编；不长期维护两个分发引擎。没有自动部署、刷新本机入口或变更 PATH。
 
-引擎后续组件与平台验收计划见 [平台与后续计划](docs/pending-platform-work.md)；规划不代表已实施功能。
+使用说明见 [Harness 工作流](harness/README.md)；本次迁移的验证范围见 [验收矩阵](docs/ACCEPTANCE_MATRIX.md)。此前平台 CI 通过记录不是新 Rust 分发的原生平台验收。
 
 ## 本地技能管理
 
-“本地技能管理”面板直接盘点和操作各工具的技能根目录，**不依赖内置引擎安装**；引擎在场时自动识别其管理的投影链接并保护：
+“本地技能管理”面板直接盘点和操作各工具的技能根目录，**不依赖内置引擎安装**；分发在场时通过共同 receipt 识别其管理的内容并保护：
 
 - 工具目录由引擎 registry 在 Rust 构建时生成，共 10 个工具（Claude Code、Copilot CLI、VS Code、Codex、Z Code、Gemini CLI、OpenCode、OpenClaw、Pi Agent、Oh My Pi）；保留 `copilot` 等输入别名和旧投影收据。VS Code 使用默认 `.copilot`，Copilot CLI 单独尊重 `COPILOT_HOME`，共享实际路径时禁止重复管理并尊重对应环境变量（`CLAUDE_CONFIG_DIR`、`COPILOT_HOME`、`CODEX_HOME`、`GEMINI_CLI_HOME`、`OPENCLAW_STATE_DIR`、`PI_CODING_AGENT_DIR`）；`~/.agents/skills` 与所有点开头条目（含 Codex 系统技能 `.system`）永不列出或触碰。
-- 盘点按条目分类：内置引擎管理链接（canonicalize 后位于引擎管理目录内，**只读**，变更请用 `atm harness` 命令）、其它链接（含断链）、本地目录、普通文件；技能名和描述读取 SKILL.md 的受限 frontmatter（仅字面 `name:`/`description:` 行），解析失败保持未知。
+- 盘点按条目分类：内置分发管理内容（链接或 Rust receipt 中的受管副本，**只读**，变更请用 `--harness` 命令）、其它链接（含断链）、本地目录、普通文件；技能名和描述读取 SKILL.md 的受限 frontmatter（仅字面 `name:`/`description:` 行），解析失败保持未知。
 - 安装只接受本机普通目录（含 SKILL.md、不含任何链接或非常规文件），上限 512 文件、8 MB、8 层嵌套；staging 后原子改名，同名条目一律拒绝不覆盖；目标根不存在时自动创建。
 - 卸载的目录技能移动到本管理器数据目录的 `skills-trash/` 保管区，可恢复（原根有同名则拒绝）或彻底删除（模态确认声明不可恢复）；外部链接（含断链）仅供查看，不提供复制或卸载入口，ATM 不触碰链接或其目标。
 - 跨根复制产生独立副本，不做持续同步；与日后引擎投影的同名冲突由引擎侧既有的同名保护拒绝，双方内容都不受影响。演示模式下所有技能变更命令直接拒绝，不写任何目录。
 
 ### atm CLI（统一命令行管理器）
 
-`crates/atm-cli` 提供与 GUI 同源（atm-core）的命令行入口 `atm`，提供完整的**技能与 harness 管理**；配置编辑与额度查询目前仍由桌面入口提供。语法为动词优先 `atm <verb> <object>`：`--harness` 选择内置引擎模态（安装/重应用/移除/校验/修复完整分发，指令随行），省略则为本地技能模态。`bootstrap` 首次安装 Python 依赖会联网，`sync` 从随包引擎离线同步；引擎诊断可能调用客户端；不访问密钥库：
+`crates/atm-cli` 提供与 GUI 同源（atm-core）的命令行入口 `atm`，提供完整的**技能与 harness 管理**；配置编辑与额度查询目前仍由桌面入口提供。语法为动词优先 `atm <verb> <object>`：`--harness` 选择内置引擎模态（安装/重应用/移除/校验/修复完整分发，指令随行），省略则为本地技能模态。分发命令直接调用 Rust 服务；bootstrap/sync 只读取随包内容，不访问密钥库：
 
 ```bash
-# 内置引擎模态（物化于 manager home；未 bootstrap 时指引 atm harness bootstrap）
-atm install skills --harness <ID>[,<ID>...]        # 安装内置分发（交互确认由引擎原生完成）
-atm update skills --harness <ID>[,<ID>...]         # 重应用（= engine refresh）
+# 内置分发模态（先校验和缓存随包内容）
+atm harness bootstrap
+atm install skills --harness <ID>[,<ID>...]        # 安装内置分发；加 --dry-run 查看计划
+atm update skills --harness <ID>[,<ID>...]         # 更新受管文件，拒绝覆盖用户修改
 atm uninstall skills --harness <ID>[,<ID>...]      # 移除分发
-atm check skills --harness <ID>... [--strict]      # 校验 / 严格校验（doctor）
-atm repair skills --harness <ID>...                # 修复（不改 PATH）
+atm check skills --harness <ID>[,<ID>...] [--strict] # Rust 完整性诊断
+atm repair skills --harness <ID>[,<ID>...]         # 重新应用受管内容，不改 PATH
 atm install/uninstall/check hooks --harness codex [--dry-run]   # Codex watcher 钩子
 
 # 本地技能模态（与 GUI「本地技能管理」同源）
@@ -55,12 +57,19 @@ atm unpublish skills <NAME> [--with-projections]
 atm check skills [NAME] [--json] / update skills [NAME] [--force]
 atm restore/purge skills <TRASH_ID>
 
-# 维护组：物化/同步/状态与引擎逃生口
+# 维护组：缓存、记录态、显式交接与中断恢复
 atm harness bootstrap|sync|status [--home PATH] [--json]
-atm harness -- <engine-args...>
+atm harness adopt [--home PATH] --dry-run
+atm harness adopt [--home PATH]
+atm harness recover [--home PATH]
+atm harness plan install --harness zcode
+# 仅在需要选定 Python payload 时准备；Windows 同样传绝对路径
+atm harness runtime prepare watcher --python /absolute/path/to/python3 --offline
+atm install hooks --harness codex --dry-run
+atm install hooks --harness codex
 ```
 
-旧 `atm skills ...` 名词式语法已随本次合并移除（`inventory→list skills`、`install <SRC> <ROOT> [NAME]→install skills <SRC> --to <ROOT> [--name]`、`trash→list skills --trash`、`refresh→update skills`）。引擎模态直通 stdio、退出码原样透传；argv 限幅（≤64 项/单项 ≤4 KiB/总量 ≤32 KiB）、无 shell。
+旧 `atm skills ...` 名词式语法已随本次合并移除（`inventory→list skills`、`install <SRC> <ROOT> [NAME]→install skills <SRC> --to <ROOT> [--name]`、`trash→list skills --trash`、`refresh→update skills`）。`atm harness --` 只接受受限的已知 Rust 命令，不再转发任意引擎 argv 或 machine 协议；参数限幅（≤64 项/单项 ≤4 KiB/总量 ≤32 KiB）。
 
 投影模型：发布时技能源被收编为本管理器数据目录下的 canonical 副本，投影在 POSIX 用符号链接、Windows 用普通复制（无特权要求；`check` 会逐文件比对副本，`update skills --force` 覆盖被修改副本）。刷新先在目标根的隐藏暂存目录完整审计/复制，成功后受控交接并更新目录身份登记；复制、替换或登记失败会保留/恢复旧副本。缺失的 skills 根经路径与引擎边界检查后重建；仍有缺源、未授权覆盖修改或所有权未知时，`update skills` 返回非 0。强制中断可能留下 `.atm-refresh-old-*` 或 `.atm-staging-*`，需按错误提示核对保留内容，不应直接删除。GUI 的技能盘点会把 ATM 投影标注为“由 ATM 投影管理”；POSIX 链接投影不提供跨根复制，追加投影使用 `atm project skills`；Windows 普通副本仍可复制。投影撤除仅通过 `atm unproject skills`，保证登记一致。
 
@@ -112,11 +121,14 @@ Linux / Windows / macOS 的功能支持状态、合成 GUI/CLI 验证步骤与�
 
 ### 完整便携分发
 
-CI 的 Linux x64、Windows x64 和 macOS arm64 产物包含 `atm`、`atm-desktop` 和相邻的 `harness/`。整体解压后使用；升级时整体替换程序包，再运行 `atm harness sync`，最后对已安装目标执行 `atm update skills --harness <ID>`。`sync` 保留历史安装收据、harness 收据、desired 状态、本地技能投影和用户配置，并在 manager home 的 `state/repair-backups/sync-*` 保存旧引擎与状态。普通失败自动恢复；强制终止后保留命名备份供检查，不自动猜测恢复。
+发布包包含 `atm`、`atm-desktop` 和相邻的 `harness/` manifest 允许清单。完整 Python 分发脚本树不进入包。整体解压后使用；升级程序包后运行 `atm harness sync`，再对已安装目标执行 `atm update skills --harness <ID>`。缓存版本和 runtime 环境不会随意搬移；未完成操作通过 `atm harness recover` 按 journal 恢复，遇到用户后续修改则停止并保留证据。
 
-引擎需要系统 Python 3.11+（含 venv/pip），首次执行 `atm harness bootstrap` 会安装 Python 依赖。release 构建只读取随包 `harness/` 或显式 `ATM_ENGINE_SOURCE`，不会回退到构建机源码目录。便携包未签名；Windows 仍需 WebView2，Linux 桌面仍需 WebKitGTK，会话 keyring 仅供配置加密功能使用。
+静态 skills 与 status 无需 Python。只有显式选定的 Python payload 需要声明版本的解释器与独立 venv；runtime 准备命令返回可直接使用的解释器路径。release 构建只读取相邻 `harness/` 或显式绝对路径 `ATM_ENGINE_SOURCE`，不会回退到构建机源码目录。便携包未签名；Windows 仍需 WebView2，Linux 桌面仍需 WebKitGTK，会话 keyring 仅供配置加密功能使用。
+
+以下 Python 脚本属于开发/发布验证工具；被测 CLI 的静态生命周期在空 `PATH` 和临时用户目录中运行。完整包验收同时通过 `atm-desktop --verify-distribution` 检查内嵌前端及相邻 payload；该只读检查不初始化窗口或安全存储，也不代表交互界面验收：
 
 ```bash
+npm run build
 cargo build --locked --release -p atm -p atm-cli
 python3 scripts/Package-Release.py --output artifacts/ai-tooling-manager-local
 python3 scripts/Test-Distribution.py artifacts/ai-tooling-manager-local.tar.gz
@@ -182,7 +194,7 @@ DPAPI / 会话 keyring / Keychain 不能防御同一用户下的恶意进程、�
 ## 源码与重现验证
 
 - `crates/atm-core`：`application/` 统一配置预览/模板/额度编排，桌面仅保留 IPC、授权与窗口适配；`tool_catalog` 从引擎 registry 构建工具目录。另含DPAPI / Secret Service / Keychain 安全存储、命名密钥库、规范路径与指纹、JSONC 源范围编辑、结构模板与 schema 校验、批量处理和回滚、Codex/GLM 额度探测、harness 引擎记录态快照、machine v1 生命周期接口与内嵌源物化（`harness_embed`）。
-- `harness/`：收编的 harness 引擎源（Python，~1.3 万行 + 单测）：`.agents/harnesses/registry.json` 是分发权威；`scripts/atm_embed.py` 负责物化/同步/收编；`plugins/` 技能分发内容由内容哈希账本（`.agents/plugins/distribution-identity.json`）锁定，改动插件内容须同步重跑 `harness/scripts/update_plugin_generations.py`。注意 `harness/AGENTS.md` 是引擎必需文件（agent 工具在 `harness/` 内工作时会读到）。
+- `harness/`：registry、版本化分发 manifest、技能 payload 和可选 `runtimes/watcher`。`crates/atm-core/src/distribution/` 拥有 Rust 分发服务；`harness/scripts/` 仅保留开发验证和身份生成工具，不进入分发 runtime。插件内容改动完成后运行一次 `update_plugin_generations.py`，再重新封存 manifest 并验证；遵循 `harness/AGENTS.md`。
 - `apps/desktop`：Tauri 2 壳（`src-tauri`，Tauri commands 与窗口构建）和 TypeScript 前端（`src`，单窗口界面、隔离演示、额度界面）。
 - `apps/desktop/tests` 与 `crates/atm-core/tests`：前端 vitest 测试与 Rust 核心/服务测试，全部用 `FAKE_` 值和每次新建的隔离目录。
 - `scripts/Verify-Local.sh`：离线源码与合成测试验证（fmt、clippy、Rust 测试、前端检查/测试/构建、Python 引擎 compileall+单测（缺依赖时诚实 SKIPPED，`ATM_ENGINE_PYTHON_STRICT=1` 时强制）、源码清单（文件白名单 + `harness/` 目录包含）与凭据模式审计），在子进程内关闭真实对象 opt-in。技能 fixture 的显式构造入口忽略外部工具根覆盖；应用入口保留环境配置语义，详见[隔离说明](docs/ACCEPTANCE_MATRIX.md#linux-本地离线检查)。macOS 原生隔离 GUI 使用 `scripts/Verify-MacOS.sh`；源码检查不能替代原生验证。

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ATM Rust distribution receipt authority",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "product", "sourceIdentity", "releaseVersion", "receipts", "runtimes", "hooks", "adoptedLegacy"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "product": {"const": "atm-harness"},
+    "sourceIdentity": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "releaseVersion": {"type": "string"},
+    "adoptedLegacy": {"type": ["string", "null"]},
+    "hooks": {"type": ["object", "null"]},
+    "runtimes": {"type": "object", "additionalProperties": {"type": "object", "required": ["id", "identity", "root", "python", "external"]}},
+    "receipts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object", "additionalProperties": false,
+        "required": ["target", "root", "sourceIdentity", "releaseVersion", "files", "emptyDirectories", "shared"],
+        "properties": {
+          "target": {"type": "string"}, "root": {"type": "string"},
+          "sourceIdentity": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "releaseVersion": {"type": "string"},
+          "files": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^[a-f0-9]{64}$"}},
+          "emptyDirectories": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "shared": {"type": "object", "additionalProperties": {"type": "object"}}
+        }
+      }
+    }
+  }
+}

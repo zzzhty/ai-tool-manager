@@ -706,6 +706,53 @@ fn context() -> tauri::Context<tauri::Wry> {
     // macOS embeds a single Info.plist symbol at this macro expansion site.
     tauri::generate_context!()
 }
+
+/// Read-only portable-package probe. It deliberately runs before GUI, storage,
+/// keyring or application-service initialization and never enables a hook.
+fn verify_distribution() -> Result<serde_json::Value, Error> {
+    let context = context();
+    let assets: std::collections::BTreeSet<_> = context
+        .assets()
+        .iter()
+        .map(|(path, _)| path.into_owned())
+        .collect();
+    let invalid = || Error::new("DISTRIBUTION_RESOURCES", "桌面程序内嵌资源不完整。");
+    let index = context
+        .assets()
+        .get(&"/index.html".into())
+        .ok_or_else(invalid)?;
+    let html = std::str::from_utf8(&index).map_err(|_| invalid())?;
+    let mut referenced = Vec::new();
+    for attribute in ["src=\"", "href=\""] {
+        for part in html.split(attribute).skip(1) {
+            let path = part.split('"').next().ok_or_else(invalid)?;
+            if !path.starts_with("/assets/")
+                || !assets.contains(path)
+                || context
+                    .assets()
+                    .get(&path.into())
+                    .is_none_or(|bytes| bytes.is_empty())
+            {
+                return Err(invalid());
+            }
+            referenced.push(path.to_owned());
+        }
+    }
+    if !referenced.iter().any(|path| path.ends_with(".js"))
+        || !referenced.iter().any(|path| path.ends_with(".css"))
+    {
+        return Err(invalid());
+    }
+    let source = atm_core::distribution::source::locate()?;
+    let bundle = atm_core::distribution::source::load(&source)?;
+    Ok(serde_json::json!({
+        "product": "atm-desktop", "releaseBuild": !cfg!(debug_assertions),
+        "frontendAssets": assets,
+        "referencedAssets": referenced, "sourceRoot": source,
+        "sourceIdentity": bundle.identity, "payloadFiles": bundle.files.len(),
+        "guiInitialized": false, "storageInitialized": false
+    }))
+}
 fn run() -> Result<(), Error> {
     let demo = std::env::args().skip(1).any(|arg| arg == "--demo");
     // Validate the synthetic test envelope before opening any vault or key store.
@@ -900,6 +947,24 @@ fn run() -> Result<(), Error> {
         .map_err(|_| Error::new("RUNTIME_FAILED", "本地窗口启动失败。"))
 }
 fn main() {
+    let args: Vec<_> = std::env::args().skip(1).collect();
+    if args
+        .first()
+        .is_some_and(|arg| arg == "--verify-distribution")
+    {
+        if args.len() != 1 {
+            eprintln!("CLI_ARGUMENT: --verify-distribution 不接受附加参数。");
+            std::process::exit(2);
+        }
+        match verify_distribution() {
+            Ok(result) => println!("{result}"),
+            Err(error) => {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     if let Err(error) = run() {
         // Release builds have no console: surface only the safe static error.
         let _ = tauri::Builder::default()
