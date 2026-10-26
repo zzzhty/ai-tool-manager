@@ -889,6 +889,21 @@ mod rust_distribution {
     }
 
     #[test]
+    fn retired_hook_install_refuses_before_creating_state_or_python() {
+        let env = Env::new();
+        for args in [
+            vec!["install", "hooks", "--harness", "codex"],
+            vec!["install", "hooks", "--harness", "codex", "--dry-run"],
+        ] {
+            let output = native(&env, &args);
+            assert_code(&output, 1);
+            assert!(String::from_utf8_lossy(&output.stderr).contains("HARNESS_HOOK_RETIRED"));
+            assert!(!manager_home(&env).exists());
+            assert!(!env.home.path().join(".codex/hooks.json").exists());
+        }
+    }
+
+    #[test]
     fn adoption_preview_does_not_initialize_an_uninstalled_manager() {
         let env = Env::new();
         let source = payload(&env);

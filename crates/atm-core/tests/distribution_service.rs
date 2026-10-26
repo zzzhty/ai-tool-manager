@@ -554,3 +554,66 @@ fn codex_cache_extra_content_is_diagnosed_and_never_adopted_on_refresh() {
     service.execute("remove", &["codex".into()]).unwrap();
     assert_eq!(fs::read_to_string(extra).unwrap(), "user content");
 }
+
+#[test]
+fn retired_hooks_refuse_enable_and_require_removal_before_content_sync() {
+    let source = fixture();
+    let (_temp, service, home, skills) = environment();
+    for dry_run in [false, true] {
+        assert_eq!(
+            service.hooks(true, dry_run).unwrap_err().code,
+            "HARNESS_HOOK_RETIRED"
+        );
+        assert!(!home.exists());
+    }
+    service.bootstrap(source.path(), false).unwrap();
+    let target = skills
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join(".codex/hooks.json");
+    let groups:std::collections::BTreeMap<_,_>=atm_core::distribution::hooks::EVENTS.into_iter().map(|event|(
+        event.to_owned(),json!({"hooks":[{"type":"command","command":"TEST_ONLY old collector","statusMessage":format!("Watcher skill: observe {event}")}]}),
+    )).collect();
+    let mut config = json!({"user":true,"hooks":{}});
+    for (event, group) in &groups {
+        config["hooks"][event] = json!([group]);
+    }
+    write(
+        target.parent().unwrap(),
+        "hooks.json",
+        serde_json::to_vec(&config).unwrap(),
+    );
+    let target = target.canonicalize().unwrap();
+    let state_path = home.join("state/distribution.json");
+    let mut state: Value = serde_json::from_slice(&fs::read(&state_path).unwrap()).unwrap();
+    state["hooks"] = json!({"schemaVersion":1,"owner":"atm-harness:watcher","target":target,"groups":groups,
+        "runtime":{"id":"watcher","identity":"old","root":home.join("missing-venv"),"python":home.join("missing-venv/bin/python"),"external":false},
+        "bundleRoot":home.join("cache/content").join(state["sourceIdentity"].as_str().unwrap()),"hooksPreexisted":false,"preservedEmptyEvents":[]});
+    fs::write(&state_path, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
+    write(&home, "logs/history.jsonl", b"keep old evidence\n");
+    let before = fs::read(&state_path).unwrap();
+    assert_eq!(
+        service.bootstrap(source.path(), false).unwrap_err().code,
+        "HARNESS_HOOK_RETIREMENT_REQUIRED"
+    );
+    assert_eq!(fs::read(&state_path).unwrap(), before);
+    let check = service.check_hooks().unwrap();
+    assert_eq!(check["passed"], false);
+    assert_eq!(check["ownershipVerified"], true);
+    assert_eq!(check["issue"], "retired-hook-enabled");
+    service.hooks(false, true).unwrap();
+    assert_eq!(fs::read(&state_path).unwrap(), before);
+    service.hooks(false, false).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<Value>(&fs::read(target).unwrap()).unwrap(),
+        json!({"user":true})
+    );
+    service.bootstrap(source.path(), false).unwrap();
+    assert_eq!(service.status().unwrap()["hooksEnabled"], false);
+    assert_eq!(
+        fs::read(home.join("logs/history.jsonl")).unwrap(),
+        b"keep old evidence\n"
+    );
+}

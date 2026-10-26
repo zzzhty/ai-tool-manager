@@ -8,7 +8,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .codex_hook_adapter import (
+from .catalog_metadata import (
     SCHEMA_VERSION,
     discover_skill_metadata,
     write_dynamic_monitored_skills,

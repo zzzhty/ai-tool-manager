@@ -1,100 +1,15 @@
 #!/usr/bin/env python3
-"""Read-only Codex hook diagnostics; Rust owns all hook configuration writes."""
-
+"""Read-only recognition of retired hooks; receipt-bound removal belongs to Rust."""
 from __future__ import annotations
-
 import json
-import os
-import shlex
-import subprocess
-import sys
 from pathlib import Path
 from typing import Any
-
-from .runtime_paths import (
-    CODEX_HOME,
-    DEFAULT_HOOK_TARGET,
-    expand_path,
-)
-from ..repository_source import resolve_repository_source
-
+from .runtime_paths import DEFAULT_HOOK_TARGET
 
 DEFAULT_TARGET = DEFAULT_HOOK_TARGET
-HOOK_EVENTS = ("SessionStart", "UserPromptSubmit", "PostToolUse", "Stop")
 STATUS_PREFIX = "Watcher skill:"
 LEGACY_STATUS_PREFIX = "Skill Watcher:"
 LEGACY_ADAPTER_NAME = "codex_hook_adapter.py"
-
-
-def default_python() -> Path:
-    # The runtime was launched with its explicit interpreter; never guess an
-    # installer/shared/project environment or mutate one during diagnostics.
-    return Path(sys.executable)
-
-
-def adapter_path(repo_root: str | Path | None = None) -> Path:
-    return resolve_repository_source(repo_root).watcher_cli
-
-
-def skill_watcher_command(
-    python_path: Path | None = None,
-    adapter: Path | None = None,
-    *,
-    repo_root: str | Path | None = None,
-) -> str:
-    source = resolve_repository_source(repo_root)
-    args = [
-        str(python_path or default_python()),
-        "-B",
-        str(adapter or source.watcher_cli),
-        "skill",
-        "observe",
-        "--repo-root",
-        str(source.root),
-    ]
-    if os.name == "nt":
-        return subprocess.list2cmdline(args)
-    return " ".join(shlex.quote(arg) for arg in args)
-
-
-def desired_handler(
-    event: str,
-    *,
-    python_path: Path | None = None,
-    adapter: Path | None = None,
-    repo_root: str | Path | None = None,
-) -> dict[str, Any]:
-    return {
-        "type": "command",
-        "async": False,
-        "command": skill_watcher_command(
-            python_path,
-            adapter,
-            repo_root=repo_root,
-        ),
-        "timeoutSec": 10,
-        "statusMessage": f"{STATUS_PREFIX} observe {event}",
-    }
-
-
-def desired_group(
-    event: str,
-    *,
-    python_path: Path | None = None,
-    adapter: Path | None = None,
-    repo_root: str | Path | None = None,
-) -> dict[str, Any]:
-    return {
-        "hooks": [
-            desired_handler(
-                event,
-                python_path=python_path,
-                adapter=adapter,
-                repo_root=repo_root,
-            )
-        ]
-    }
-
 
 def load_config(path: Path) -> dict[str, Any]:
     if not path.exists():
@@ -110,10 +25,6 @@ def load_config(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise SystemExit(f"hook config {path} must contain a JSON object")
     return data
-
-
-def dump_config(config: dict[str, Any]) -> str:
-    return json.dumps(config, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
 
 def validate_hook_shape(config: dict[str, Any]) -> None:

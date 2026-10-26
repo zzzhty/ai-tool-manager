@@ -1,68 +1,58 @@
 use atm_core::distribution::{hooks, runtime::PreparedRuntime};
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 
-fn root() -> PathBuf {
-    std::env::temp_dir().join("TEST_ONLY hooks 空间")
-}
-fn runtime() -> PreparedRuntime {
-    let root = root().join("venv 版本");
-    PreparedRuntime {
-        id: "watcher".into(),
-        identity: "test-locked".into(),
-        python: root.join("bin/python"),
-        root,
-        external: false,
+fn retired_fixture() -> (PathBuf, hooks::HookOwnership, Value) {
+    let root = std::env::temp_dir().join("TEST_ONLY retired hooks 空间");
+    let target = root.join("hooks.json");
+    let groups: BTreeMap<_, _> = hooks::EVENTS.into_iter().map(|event| (
+        event.to_owned(), json!({"hooks":[{"type":"command","command":"TEST_ONLY old collector","statusMessage":format!("Watcher skill: observe {event}")}]}),
+    )).collect();
+    let owner = hooks::HookOwnership {
+        schema_version: 1,
+        owner: "atm-harness:watcher".into(),
+        target: target.clone(),
+        groups: groups.clone(),
+        runtime: PreparedRuntime {
+            id: "watcher".into(),
+            identity: "old-runtime".into(),
+            root: root.join("venv"),
+            python: root.join("venv/bin/python"),
+            external: false,
+        },
+        bundle_root: root,
+        hooks_preexisted: true,
+        preserved_empty_events: vec!["Stop".into(), "Unknown".into()],
+    };
+    let mut value = json!({"userField":{"keep":true},"hooks":{"Unknown":[],"Stop":[],"SessionStart":[{"matcher":"foreign","hooks":[{"type":"command","command":"user-owned"}]}]}});
+    for (event, group) in groups {
+        value["hooks"]
+            .as_object_mut()
+            .unwrap()
+            .entry(event)
+            .or_insert(json!([]))
+            .as_array_mut()
+            .unwrap()
+            .push(group);
     }
+    (target, owner, value)
 }
 
 #[test]
-fn explicit_enable_disable_preserves_foreign_entries_and_repeats() {
-    let target = root().join("hooks.json");
-    let runtime = runtime();
-    let original = json!({"userField":{"keep":true},"hooks":{"Unknown":[],"Stop":[],"SessionStart":[{"matcher":"foreign","hooks":[{"type":"command","command":"user-owned"}]}]}});
-    let original_bytes = serde_json::to_vec(&original).unwrap();
-    let enabled = hooks::plan(
-        &target,
-        Some(&original_bytes),
-        None,
-        true,
-        Some(&runtime),
-        &root(),
-    )
-    .unwrap();
-    let bytes = &enabled.artifact.as_ref().unwrap().bytes;
-    let value: Value = serde_json::from_slice(bytes).unwrap();
-    assert_eq!(value["hooks"]["SessionStart"].as_array().unwrap().len(), 2);
-    assert_eq!(value["hooks"]["Unknown"], json!([]));
-    let repeat = hooks::plan(
-        &target,
-        Some(bytes),
-        enabled.ownership.as_ref(),
-        true,
-        Some(&runtime),
-        &root(),
-    )
-    .unwrap();
-    assert!(repeat.artifact.is_none());
-    assert_eq!(repeat.ownership, enabled.ownership);
-    let disabled = hooks::plan(
-        &target,
-        Some(bytes),
-        enabled.ownership.as_ref(),
-        false,
-        None,
-        &root(),
-    )
-    .unwrap();
-    let disabled_bytes = &disabled.artifact.as_ref().unwrap().bytes;
+fn removal_preserves_foreign_entries_and_repeats_without_runtime_or_source() {
+    let (target, owner, current) = retired_fixture();
+    let bytes = serde_json::to_vec(&current).unwrap();
+    let plan =
+        hooks::plan_removal(&target, Some(&bytes), Some(&owner), &owner.bundle_root).unwrap();
+    let bytes = &plan.artifact.unwrap().bytes;
+    let after: Value = serde_json::from_slice(bytes).unwrap();
     assert_eq!(
-        serde_json::from_slice::<Value>(disabled_bytes).unwrap(),
-        original
+        after,
+        json!({"userField":{"keep":true},"hooks":{"Unknown":[],"Stop":[],"SessionStart":[{"matcher":"foreign","hooks":[{"type":"command","command":"user-owned"}]}]}})
     );
-    assert!(disabled.ownership.is_none());
+    assert!(plan.ownership.is_none());
     assert!(
-        hooks::plan(&target, Some(disabled_bytes), None, false, None, &root())
+        hooks::plan_removal(&target, Some(bytes), None, &owner.bundle_root)
             .unwrap()
             .artifact
             .is_none()
@@ -70,82 +60,39 @@ fn explicit_enable_disable_preserves_foreign_entries_and_repeats() {
 }
 
 #[test]
-fn no_receipt_cannot_adopt_existing_hook_or_remove_user_modified_group() {
-    let target = root().join("hooks.json");
-    let runtime = runtime();
-    let enabled = hooks::plan(&target, None, None, true, Some(&runtime), &root()).unwrap();
-    let bytes = &enabled.artifact.as_ref().unwrap().bytes;
+fn no_receipt_and_modified_or_duplicate_owned_groups_fail_closed() {
+    let (target, owner, current) = retired_fixture();
+    let bytes = serde_json::to_vec(&current).unwrap();
     assert_eq!(
-        hooks::plan(&target, Some(bytes), None, true, Some(&runtime), &root())
+        hooks::plan_removal(&target, Some(&bytes), None, &owner.bundle_root)
             .unwrap_err()
             .code,
         "HARNESS_HOOK_CONFLICT"
     );
-    let mut modified: Value = serde_json::from_slice(bytes).unwrap();
-    modified["hooks"]["Stop"][0]["hooks"][0]["timeoutSec"] = json!(22);
-    let modified = serde_json::to_vec(&modified).unwrap();
-    for enable in [true, false] {
+    for duplicate in [false, true] {
+        let mut altered = current.clone();
+        if duplicate {
+            altered["hooks"]["Stop"]
+                .as_array_mut()
+                .unwrap()
+                .push(owner.groups["Stop"].clone());
+        } else {
+            altered["hooks"]["Stop"][0]["hooks"][0]["timeoutSec"] = json!(22);
+        }
         assert_eq!(
-            hooks::plan(
+            hooks::plan_removal(
                 &target,
-                Some(&modified),
-                enabled.ownership.as_ref(),
-                enable,
-                Some(&runtime),
-                &root()
+                Some(&serde_json::to_vec(&altered).unwrap()),
+                Some(&owner),
+                &owner.bundle_root
             )
             .unwrap_err()
             .code,
             "HARNESS_HOOK_CONFLICT"
         );
     }
-}
-
-#[test]
-fn disabled_missing_config_is_noop_and_duplicate_owned_groups_are_ambiguous() {
-    let target = root().join("hooks.json");
-    let runtime = runtime();
-    assert!(hooks::plan(&target, None, None, false, None, &root())
+    assert!(hooks::plan_removal(&target, None, None, &owner.bundle_root)
         .unwrap()
         .artifact
         .is_none());
-    let enabled = hooks::plan(&target, None, None, true, Some(&runtime), &root()).unwrap();
-    let mut value: Value = serde_json::from_slice(&enabled.artifact.unwrap().bytes).unwrap();
-    let group = value["hooks"]["Stop"][0].clone();
-    value["hooks"]["Stop"].as_array_mut().unwrap().push(group);
-    assert_eq!(
-        hooks::plan(
-            &target,
-            Some(&serde_json::to_vec(&value).unwrap()),
-            enabled.ownership.as_ref(),
-            false,
-            None,
-            &root()
-        )
-        .unwrap_err()
-        .code,
-        "HARNESS_HOOK_CONFLICT"
-    );
-}
-
-#[test]
-fn windows_space_unicode_and_trailing_backslash_quote_without_shell_expansion() {
-    let line = hooks::command_line(
-        &[
-            r"C:\Program Files\Python 中文\python.exe".into(),
-            r"C:\payload 路径\".into(),
-        ],
-        true,
-    )
-    .unwrap();
-    assert_eq!(
-        line,
-        "\"C:\\Program Files\\Python 中文\\python.exe\" \"C:\\payload 路径\\\\\""
-    );
-    assert!(hooks::command_line(&[r"C:\%APPDATA%\python.exe".into()], true).is_err());
-    assert!(hooks::command_line(&["bad\npath".into()], false).is_err());
-    assert_eq!(
-        hooks::command_line(&["user's python".into()], false).unwrap(),
-        "'user'\\''s python'"
-    );
 }

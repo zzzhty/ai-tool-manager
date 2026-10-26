@@ -28,23 +28,8 @@ fixture = json.loads((ROOT / "tests/fixtures/catalog.json").read_text())
 for entry in fixture["skills"]:
     (REPO_ROOT / entry["path"]).mkdir(parents=True)
 
-from watcher_runtime.skill.codex_hook_adapter import (  # noqa: E402
-    HookRuntimePaths,
-    discover_watcher_skill_identities,
-    discover_skill_metadata,
-    load_dynamic_monitored_skills,
-    normalize_hook_payload,
-    process_hook,
-    write_hook_event,
-)
-from watcher_runtime.skill.codex_hook_config import (  # noqa: E402
-    default_python,
-    skill_watcher_command,
-)
-from watcher_runtime.skill.doctor import (  # noqa: E402
-    find_managed_hook_issues,
-    main as doctor_main,
-)
+from watcher_runtime.skill.catalog_metadata import discover_skill_metadata, write_dynamic_monitored_skills
+from watcher_runtime.skill.doctor import main as doctor_main
 from watcher_runtime.skill.migrate_skill_watcher_schema import main as reset_schema_main  # noqa: E402
 from watcher_runtime.skill.report_pipeline import (  # noqa: E402
     event_hash,
@@ -129,7 +114,7 @@ class SkillWatcherTests(unittest.TestCase):
             return None
 
 
-    def test_skill_doctor_runs_entirely_in_temporary_state(self) -> None:
+    def test_skill_doctor_reports_retired_hooks_without_writing_config_or_history(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             state_dir = root / "watcher" / "skill"
@@ -153,7 +138,25 @@ class SkillWatcherTests(unittest.TestCase):
             self.assertEqual(result, 0, output.getvalue())
             self.assertFalse(state_dir.exists())
             self.assertFalse(hook_target.exists())
-            self.assertIn("doctor passed with 2 warning(s)", output.getvalue())
+            self.assertIn("no events written", output.getvalue())
+
+            log = state_dir / "logs/events.jsonl"
+            log.parent.mkdir(parents=True)
+            log.write_text('{"event_type":"historical"}\n', encoding="utf-8")
+            for config in (
+                {"hooks": {"Stop": [{"hooks": [{"command": "TEST_ONLY old", "statusMessage": "Watcher skill: observe Stop"}]}, {"hooks": [{"command": "TEST_ONLY user"}]}]}},
+                {"hooks": None},
+                {"hooks": {"Stop": [{"hooks": None}]}},
+            ):
+                hook_target.write_text(json.dumps(config), encoding="utf-8")
+                before = {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+                output = io.StringIO()
+                with mock.patch("sys.stdout", output):
+                    result = doctor_main(["--repo-root", str(REPO_ROOT), "--state-dir", str(state_dir), "--hook-target", str(hook_target)])
+                self.assertEqual(result, 0)
+                self.assertEqual({p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}, before)
+                if "TEST_ONLY old" in json.dumps(config):
+                    self.assertIn("1 retired skill-watcher handlers", output.getvalue())
 
 
     def test_redacts_secret_keys_and_values(self) -> None:
@@ -270,31 +273,8 @@ class SkillWatcherTests(unittest.TestCase):
                 "mattpocock-skills:writing-for-agents",
             ),
         )
-        for legacy_full_name, legacy_slug, current_name in renamed:
-            with self.subTest(legacy_full_name=legacy_full_name, source="provided"):
-                provided = normalize_hook_payload(
-                    {
-                        "hook_event_name": "UserPromptSubmit",
-                        "skill_name": legacy_full_name,
-                    },
-                    repo_root=REPO_ROOT,
-                )
-                self.assertEqual(provided["skill_attribution"]["primary"]["name"], current_name)
-                self.assertEqual(provided["skill_attribution"]["primary"]["source"], "provided")
-
-            for prompt_alias in (legacy_full_name, legacy_slug):
-                with self.subTest(prompt_alias=prompt_alias, source="prompt_mention"):
-                    prompt = normalize_hook_payload(
-                        {
-                            "hook_event_name": "UserPromptSubmit",
-                            "prompt": f"Use ${prompt_alias} for this work",
-                        },
-                        repo_root=REPO_ROOT,
-                    )
-                    primary = prompt["skill_attribution"]["primary"]
-                    self.assertEqual(primary["name"], current_name)
-                    self.assertEqual(primary["source"], "prompt_mention")
-                    self.assertEqual(primary["alias_kind"], "legacy")
+        for legacy_full_name, _legacy_slug, current_name in renamed:
+            self.assertEqual(metadata["legacy_names"][legacy_full_name], current_name)
 
         retired_names = {
             f"mattpocock-skills:{name}"
@@ -335,203 +315,6 @@ class SkillWatcherTests(unittest.TestCase):
         self.assertEqual(metadata["skills"][retro]["supporting_skills"], [])
         for name, skill in metadata["skills"].items():
             self.assertNotIn(retro, skill["supporting_skills"], name)
-        for prompt in ("Use $mattpocock-skills:retro for this session", "/retro", "Run /retro on this session"):
-            with self.subTest(prompt=prompt):
-                event = normalize_hook_payload(
-                    {"hook_event_name": "UserPromptSubmit", "prompt": prompt},
-                    repo_root=REPO_ROOT,
-                )
-                self.assertEqual(event["skill_attribution"]["primary"]["name"], retro)
-        # These checks cover attribution, not a model's decision to invoke a skill.
-        for prompt in (
-            "The task is complete", "The test failed again", "I like retro games",
-            "Review this coding session", "Open /retrospective or /retrofit",
-        ):
-            with self.subTest(prompt=prompt):
-                event = normalize_hook_payload(
-                    {"hook_event_name": "UserPromptSubmit", "prompt": prompt},
-                    repo_root=REPO_ROOT,
-                )
-                self.assertNotEqual((event["skill_attribution"]["primary"] or {}).get("name"), retro)
-
-    def test_codex_hook_lifecycle_filters_summarizes_and_guards_skill_list(self) -> None:
-        catalog = load_repository_skill_catalog(resolve_repository_source(REPO_ROOT))
-        watcher_identities = sorted(
-            source.id
-            for source in catalog.sources
-        )
-        self.assertIn("mattpocock-skills:ask-matt", watcher_identities)
-        self.assertEqual(
-            discover_watcher_skill_identities(REPO_ROOT),
-            tuple(watcher_identities),
-        )
-        metadata = discover_skill_metadata(REPO_ROOT)
-        self.assertEqual(set(metadata["skills"]), set(watcher_identities))
-        self.assertEqual(
-            metadata["legacy_names"]["mattpocock-skills:diagnose"],
-            "mattpocock-skills:diagnosing-bugs",
-        )
-        self.assertEqual(
-            metadata["skills"]["mattpocock-skills:grill-with-docs"]["supporting_skills"],
-            ["mattpocock-skills:domain-modeling", "mattpocock-skills:grilling"],
-        )
-
-        normalized = normalize_hook_payload(
-            {
-                "hook_event_name": "PostToolUse",
-                "cwd": "/tmp/workspace",
-                "session_id": "session-1",
-                "turn_id": "turn-1",
-                "tool_name": "Bash",
-                "tool_input": {"command": "printf sk-testsecret123456789"},
-                "tool_response": {"exit_code": 1, "stderr": "error token sk-testsecret123456789"},
-            },
-            repo_root=REPO_ROOT,
-        )
-        serialized = json.dumps(normalized, sort_keys=True)
-        self.assertEqual(normalized["event_type"], "post_tool_use")
-        self.assertNotIn("skill_name", normalized)
-        self.assertIsNone(normalized["skill_attribution"]["primary"])
-        self.assertEqual(normalized["outcome"], "failure")
-        self.assertEqual(normalized["failure_type"], "tool_error")
-        self.assertIn("tool_input_summary", normalized["codex"])
-        self.assertNotIn("printf sk-testsecret123456789", serialized)
-        self.assertNotIn("sk-testsecret123456789", serialized)
-
-        with tempfile.TemporaryDirectory() as tmp:
-            state_dir = Path(tmp)
-            session_start = write_hook_event(
-                {
-                    "hook_event_name": "SessionStart",
-                    "cwd": "/tmp/workspace",
-                    "session_id": "session-start",
-                    "turn_id": "turn-start",
-                },
-                state_dir=state_dir,
-                repo_root=REPO_ROOT,
-            )
-            unknown = write_hook_event(
-                {
-                    "hook_event_name": "UserPromptSubmit",
-                    "cwd": "/tmp/workspace",
-                    "session_id": "session-unknown",
-                    "turn_id": "turn-unknown",
-                    "prompt": "ordinary task without a monitored skill",
-                },
-                state_dir=state_dir,
-                repo_root=REPO_ROOT,
-            )
-            base = {
-                "cwd": "/tmp/workspace",
-                "session_id": "session-2",
-                "turn_id": "turn-2",
-            }
-            prompt = write_hook_event(
-                {
-                    **base,
-                    "hook_event_name": "UserPromptSubmit",
-                    "prompt": "Use diagnose on flaky tests with sk-testsecret123456789",
-                },
-                state_dir=state_dir,
-                repo_root=REPO_ROOT,
-            )
-            success = write_hook_event(
-                {
-                    **base,
-                    "hook_event_name": "PostToolUse",
-                    "tool_name": "Bash",
-                    "tool_response": {"exit_code": 0, "stdout": "ok"},
-                },
-                state_dir=state_dir,
-                repo_root=REPO_ROOT,
-            )
-            failure = write_hook_event(
-                {
-                    **base,
-                    "hook_event_name": "PostToolUse",
-                    "tool_name": "Bash",
-                    "tool_response": {"exit_code": 1, "stderr": "error"},
-                },
-                state_dir=state_dir,
-                repo_root=REPO_ROOT,
-            )
-            summary = write_hook_event(
-                {**base, "hook_event_name": "Stop"},
-                state_dir=state_dir,
-                repo_root=REPO_ROOT,
-            )
-            lines = log_file_path(state_dir).read_text(encoding="utf-8").splitlines()
-            dynamic_skills = load_dynamic_monitored_skills(state_dir)
-
-        self.assertFalse(session_start["codex"]["persisted"])
-        self.assertEqual(
-            session_start["codex"]["metadata_update"]["skill_count"],
-            len(watcher_identities),
-        )
-        self.assertEqual(dynamic_skills, tuple(watcher_identities))
-        self.assertFalse(unknown["codex"]["persisted"])
-        self.assertEqual(prompt["skill_attribution"]["primary"]["name"], "mattpocock-skills:diagnosing-bugs")
-        self.assertEqual(prompt["skill_attribution"]["primary"]["source"], "prompt_mention")
-        self.assertTrue(prompt["codex"]["persisted"])
-        self.assertIn("user_skill_context", prompt["codex"])
-        self.assertFalse(success["codex"]["persisted"])
-        self.assertTrue(failure["codex"]["persisted"])
-        self.assertEqual(summary["event_type"], "turn_summary")
-        self.assertEqual(summary["codex"]["turn_summary"]["tool_count"], 2)
-        self.assertEqual(summary["codex"]["turn_summary"]["tool_failure_count"], 1)
-        self.assertEqual(summary["codex"]["turn_summary"]["task_outcome"], "unknown")
-        self.assertEqual(summary["outcome"], "unknown")
-        self.assertIn("user_skill_context", summary["codex"]["turn_summary"])
-        self.assertEqual(len(lines), 3)
-        self.assertNotIn("sk-testsecret123456789", "\n".join(lines))
-
-        sop_prompt = normalize_hook_payload(
-            {
-                "hook_event_name": "UserPromptSubmit",
-                "prompt": "请使用标准流程整理这次重复任务。",
-            },
-            repo_root=REPO_ROOT,
-        )
-        self.assertEqual(sop_prompt["skill_attribution"]["primary"]["name"], "workflow:sop")
-        self.assertEqual(sop_prompt["skill_attribution"]["primary"]["source"], "prompt_mention")
-        self.assertEqual(sop_prompt["skill_attribution"]["primary"]["matched_alias"], "标准流程")
-
-        sop_assistant = normalize_hook_payload(
-            {
-                "hook_event_name": "Stop",
-                "last_assistant_message": "I will use $sop for this recurring procedure.",
-            },
-            repo_root=REPO_ROOT,
-        )
-        self.assertEqual(sop_assistant["skill_attribution"]["primary"]["name"], "workflow:sop")
-        self.assertEqual(sop_assistant["skill_attribution"]["primary"]["source"], "assistant_announcement")
-        self.assertEqual(sop_assistant["skill_attribution"]["primary"]["matched_alias"], "sop")
-
-        for ordinary_cleanup in (
-            "Please clean up this parser implementation.",
-            "Please do a repo cleanup of stale abstractions.",
-        ):
-            with self.subTest(ordinary_cleanup=ordinary_cleanup):
-                cleanup_event = normalize_hook_payload(
-                    {
-                        "hook_event_name": "UserPromptSubmit",
-                        "prompt": ordinary_cleanup,
-                    },
-                    repo_root=REPO_ROOT,
-                )
-                self.assertIsNone(cleanup_event["skill_attribution"]["primary"])
-
-        disposable_cleanup = normalize_hook_payload(
-            {
-                "hook_event_name": "UserPromptSubmit",
-                "prompt": "Remove disposable artifacts after validation.",
-            },
-            repo_root=REPO_ROOT,
-        )
-        self.assertEqual(
-            disposable_cleanup["skill_attribution"]["primary"]["name"],
-            "watcher:housekeeping",
-        )
 
     def test_metadata_discovery_ignores_marketplace_and_plugin_manifests(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -657,124 +440,9 @@ class SkillWatcherTests(unittest.TestCase):
 
         self.assertIn("invalid logical_group", str(raised.exception))
 
-    def test_session_start_surfaces_metadata_discovery_failure(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp) / "source"
-            state_dir = Path(tmp) / "state"
-            initialize_catalog_repo(root, {"demo": ("entry",)})
-            overlay = root / "canonical-catalog.json"
-            overlay.write_text("{not-json\n", encoding="utf-8")
 
-            with self.assertRaises(SystemExit) as raised:
-                process_hook(
-                    {
-                        "hook_event_name": "SessionStart",
-                        "session_id": "metadata-failure",
-                    },
-                    HookRuntimePaths(state_dir=state_dir, log_file=log_file_path(state_dir)),
-                    repo_root=root,
-                )
 
-            self.assertFalse((state_dir / "skill-metadata-cache.json").exists())
 
-        self.assertIn("invalid canonical catalog snapshot", str(raised.exception))
-
-    def test_hook_runtime_dry_run_normalizes_without_writing_artifacts(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            state_dir = Path(tmp)
-            result = process_hook(
-                {
-                    "hook_event_name": "UserPromptSubmit",
-                    "cwd": "/tmp/workspace",
-                    "session_id": "session-dry-run",
-                    "turn_id": "turn-dry-run",
-                    "prompt": "Use diagnose on flaky tests",
-                },
-                HookRuntimePaths(state_dir=state_dir, log_file=log_file_path(state_dir)),
-                persist=False,
-                repo_root=REPO_ROOT,
-            )
-
-            self.assertFalse(log_file_path(state_dir).exists())
-            self.assertEqual(list((state_dir / "turns").glob("*.json")), [])
-
-        self.assertTrue(result.persisted)
-        self.assertEqual(result.hook_event_name, "UserPromptSubmit")
-        self.assertEqual(result.event["skill_attribution"]["primary"]["name"], "mattpocock-skills:diagnosing-bugs")
-
-    def test_explicit_repo_root_resolves_runtime_from_agents_skill_symlink(self) -> None:
-        payload = json.dumps(
-            {
-                "hook_event_name": "UserPromptSubmit",
-                "session_id": "runtime-locator",
-                "prompt": "Use diagnose on this failure",
-            }
-        )
-        watcher = ROOT / "scripts" / "watcher"
-        with tempfile.TemporaryDirectory() as tmp:
-            agents_skill = Path(tmp) / "agents" / "skills" / "diagnosing-bugs"
-            agents_skill.parent.mkdir(parents=True)
-            try:
-                agents_skill.symlink_to(
-                    REPO_ROOT / "plugins" / "mattpocock-skills" / "skills" / "diagnosing-bugs",
-                    target_is_directory=True,
-                )
-            except OSError as exc:
-                self.skipTest(f"directory symlinks unavailable: {exc}")
-
-            events = []
-            for cwd in (REPO_ROOT, agents_skill):
-                result = subprocess.run(
-                    [
-                        sys.executable,
-                        str(watcher),
-                        "skill",
-                        "observe",
-                        "--repo-root",
-                        str(REPO_ROOT),
-                        "--dry-run",
-                    ],
-                    cwd=cwd,
-                    input=payload,
-                    text=True,
-                    capture_output=True,
-                )
-                self.assertEqual(result.returncode, 0, result.stderr)
-                events.append(json.loads(result.stdout))
-
-        self.assertEqual(
-            events[0]["skill_attribution"],
-            events[1]["skill_attribution"],
-        )
-        self.assertEqual(
-            events[0]["skill_attribution"]["primary"]["name"],
-            "mattpocock-skills:diagnosing-bugs",
-        )
-
-    def test_hook_command_quotes_space_paths_for_posix_and_windows(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            temporary_root = Path(tmp)
-            root = temporary_root / "repo with spaces"
-            initialize_catalog_repo(root, {"demo": ("entry",)})
-            python = temporary_root / "tooling python" / "python"
-            adapter = root / "runtimes" / "watcher" / "scripts" / "watcher"
-            expected_argv = [
-                str(python),
-                "-B",
-                str(adapter),
-                "skill",
-                "observe",
-                "--repo-root",
-                str(root.resolve()),
-            ]
-
-            with mock.patch("watcher_runtime.skill.codex_hook_config.os.name", "posix"):
-                posix_command = skill_watcher_command(python, adapter, repo_root=root)
-            with mock.patch("watcher_runtime.skill.codex_hook_config.os.name", "nt"):
-                windows_command = skill_watcher_command(python, adapter, repo_root=root)
-
-        self.assertEqual(shlex.split(posix_command, posix=True), expected_argv)
-        self.assertEqual(windows_command, subprocess.list2cmdline(expected_argv))
 
     def test_reset_schema_validates_repository_before_runtime_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1091,26 +759,18 @@ class SkillWatcherTests(unittest.TestCase):
             marketplace = root / ".agents" / "plugins" / "marketplace.json"
             marketplace.parent.mkdir(parents=True)
             marketplace.write_text("{not-json\n", encoding="utf-8")
-            base = {"session_id": "catalog-report", "turn_id": "turn-1"}
-            write_hook_event(
-                {**base, "hook_event_name": "SessionStart"},
-                state_dir=state_dir,
-                repo_root=root,
-            )
-            write_hook_event(
-                {
-                    **base,
-                    "hook_event_name": "UserPromptSubmit",
-                    "prompt": "Use entry for this task",
-                },
-                state_dir=state_dir,
-                repo_root=root,
-            )
-            write_hook_event(
-                {**base, "hook_event_name": "Stop"},
-                state_dir=state_dir,
-                repo_root=root,
-            )
+            write_dynamic_monitored_skills(state_dir, discover_skill_metadata(root))
+            history = [
+                {"timestamp": "2026-06-05T00:00:00Z", "event_type": kind,
+                 "session_id": "historical", "skill_name": "demo:entry",
+                 "skill_attribution": {"primary": {"name": "demo:entry", "role": "entrypoint"},
+                                       "supporting": [], "effective": ["demo:entry"], "mentioned": []}}
+                for kind in ("user_prompt_submit", "turn_summary")
+            ]
+            log_file = log_file_path(state_dir)
+            log_file.parent.mkdir(parents=True, exist_ok=True)
+            original = "\n".join(json.dumps(event) for event in history) + "\n"
+            log_file.write_text(original, encoding="utf-8")
 
             result = run_report_pipeline(
                 ReportQuery(
@@ -1119,6 +779,8 @@ class SkillWatcherTests(unittest.TestCase):
                 ),
                 ReportOutputPolicy(write_output=False),
             )
+
+            self.assertEqual(log_file.read_text(encoding="utf-8"), original)
 
         self.assertIn("`demo:entry`", result.report)
         self.assertIn("explicit-workflows", result.report)

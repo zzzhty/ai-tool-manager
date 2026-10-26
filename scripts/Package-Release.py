@@ -63,7 +63,7 @@ def main():
         "Run: atm harness bootstrap; after upgrading: atm harness sync.\n"
         "Then: atm update skills --harness <ID> to reapply recorded distributions.\n"
         "Python payload runtimes require explicit preparation with an absolute interpreter.\n"
-        "Preparing a runtime does not enable hooks. Hook activation is a separate command.\n"
+        "Skill-watcher hooks are retired; only receipt-based removal of old entries remains.\n"
         "ATM_HOME selects manager state. Legacy Python state requires explicit atm harness adopt.\n"
         "This portable build is unsigned. Native desktop runtime requirements apply.\n"
         f"Platform: {sys.platform} {platform.machine()}\n", encoding="utf-8")

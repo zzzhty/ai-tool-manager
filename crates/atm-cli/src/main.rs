@@ -28,10 +28,9 @@ const USAGE: &str = "用法（动词优先；--harness 选择内置引擎，省�
   atm list skills [--json] [--trash]                     # 盘点工具根与保管区
   atm install skills <SOURCE> --to <ROOT> [--name <NAME>]   # 本地复制安装
   atm install skills --harness <ID>[,<ID>...]            # 安装内置分发（指令随行）
-  atm install hooks --harness codex [--dry-run]          # 安装 Codex watcher 钩子
   atm uninstall skills <ROOT> <NAME>                     # 本地卸载入保管区
   atm uninstall skills --harness <ID>[,<ID>...]          # 移除内置分发
-  atm uninstall hooks --harness codex [--dry-run]
+  atm uninstall hooks --harness codex [--dry-run]        # 退役旧 skill-watcher 条目
   atm copy skills <SRC_ROOT> <NAME> <DST_ROOT>           # 跨根复制
   atm publish skills <SOURCE> --name <NAME> --to <ROOT>[,<ROOT>...]
   atm project skills <NAME> --to <ROOT>                  # 追加投影
@@ -39,7 +38,7 @@ const USAGE: &str = "用法（动词优先；--harness 选择内置引擎，省�
   atm unpublish skills <NAME> [--with-projections]       # 移除发布源
   atm check skills [NAME] [--json]                       # 校验本地投影
   atm check skills --harness <ID>[,<ID>...] [--strict]   # 引擎校验（--strict 即 doctor）
-  atm check hooks --harness codex                        # watcher 诊断
+  atm check hooks --harness codex                        # 旧 hook 退役诊断
   atm update skills [NAME] [--force]                     # 修复本地投影
   atm update skills --harness <ID>[,<ID>...]             # 重应用内置分发
   atm repair skills --harness <ID>[,<ID>...]             # 修复分发（不改 PATH）

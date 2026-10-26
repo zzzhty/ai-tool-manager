@@ -1,31 +1,32 @@
 # Watcher runtime
 
-Watcher is optional hook/runtime content, with no callable skill entries.
+Watcher is optional historical-report and audit content, with no callable skill entries.
+The skill-watcher collector, `skill observe`, and hook command generation are retired.
 The interactive doc-alignment, housekeeping, skill-maintainer, and skill-compressor
 workflows live in the maintenance plugin. Their durable `watcher:*` attribution
 identities remain unchanged; current `maintenance:*` selectors map to them.
 
 ## Runtime and catalog contract
 
-ATM Rust validates and pins payload content, prepares only the selected Python
-dependency group, and owns hook configuration changes. Importing this runtime or
-preparing its interpreter does not enable hooks. Use `atm install hooks --harness
-codex` or `atm uninstall hooks --harness codex` explicitly; this Python CLI has no
-hook installation or uninstallation entrypoint.
+ATM Rust validates and pins payload content and prepares only selected Python
+helper groups. New distributions omit hook bindings and cannot install or enable
+skill-watcher hooks. `atm uninstall hooks --harness codex` retains exact receipt-based
+removal for old installations; it never clears logs or requires an old interpreter.
+The `watcher` runtime group remains available for historical reports and doc audits.
 
-`SessionStart` reads `canonical-catalog.json` from the explicit `--repo-root` /
+Catalog/history tools read `canonical-catalog.json` from the explicit `--repo-root` /
 `ATM_HARNESS_ROOT` payload root. Snapshot schema version 1 contains stable skill
 identities, current source paths, source identity, aliases, and embedded attribution
-overlays. Missing or unsupported snapshots fail clearly. Watcher does not import
-an installer, scan an entire repository, or read plugin caches to enumerate skills.
-The snapshot refreshes runtime metadata; historical JSONL logs remain unchanged.
+overlays. Missing or unsupported snapshots fail clearly. No installer import,
+repository scan or plugin-cache discovery is used to enumerate skills. Historical
+metadata caches, JSONL schemas and logs remain readable and are not rewritten.
 
 Attribution overlays retain roles, aliases, supporting-skill relationships, logical
 groups, and historical mappings. Declare supporting skills only for unconditional
 dependencies; reports apply grouping at read time. Preserved unknown historical
 identities remain visible rather than being silently dropped.
 
-Hook observation, reports, and doc audits use the Python standard library. Explicit
+Historical reports and doc audits use the Python standard library. Explicit
 maintenance proposals and candidate validation use the separate
 `maintenance-validation` group and `requirements-maintenance.lock` (PyYAML 6.0.3,
 wheel hashes for CPython 3.11–3.14). The hashes come from the local cached PyPI index;
@@ -54,8 +55,8 @@ matching summary. It writes a worksheet and separate candidate path, never sourc
 skill changes. Materialize an authorized candidate before running validation;
 proposal generation itself does not validate it. Logs are untrusted evidence.
 
-`skill doctor` inspects the snapshot and configured hooks without changing runtime
-state; its smoke events use a temporary directory. `$CODEX_HOME/watcher` remains
+`skill doctor` inspects the snapshot, historical metadata and any retired hook
+entries without writing runtime state or generating sample events. `$CODEX_HOME/watcher` remains
 logs/reports/runtime state and is preserved when the hook is removed.
 
 Doc audit configs may define multiple named profiles for one repository. Keep current authority,

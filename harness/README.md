@@ -41,15 +41,14 @@ reported instead of overwritten. Uninstall preserves logs, reports and user file
 ## Python is a payload requirement
 
 Installing static content does not create a shared Python tooling environment.
-Only a selected Python skill or hook needs its declared runtime. Prepare that
+Only a selected Python helper needs its declared runtime. Prepare that
 group with an explicit interpreter:
 
 ```sh
 atm harness runtime prepare workflow --python /absolute/path/to/python3 --offline
 atm harness runtime prepare maintenance --python /absolute/path/to/python3 --offline
-atm harness runtime prepare watcher --python /absolute/path/to/python3 --offline
 # Explicit external environment: validate it without installing or changing packages.
-atm harness runtime prepare watcher --python /absolute/path/to/python3 --external-venv /absolute/path/to/existing-venv --offline
+atm harness runtime prepare workflow --python /absolute/path/to/python3 --external-venv /absolute/path/to/existing-venv --offline
 ```
 
 The returned `prepared.python` is the interpreter to use for that group's scripts.
@@ -67,7 +66,8 @@ bindings in the manifest identify which payload needs each group.
 
 ## Watcher and maintenance workflows
 
-`runtimes/watcher/` contains collection, event handling, reporting and audit helpers.
+`runtimes/watcher/` contains historical event, reporting and audit helpers. The
+skill-watcher collector and hook activation are retired.
 It has no callable skill entry. Its catalog loader reads the versioned Rust
 snapshot, including stable identities, source paths and attribution overlays.
 It does not import `scripts/repo_skill_catalog.py` or scan the original repository.
@@ -78,19 +78,25 @@ It does not import `scripts/repo_skill_catalog.py` or scan the original reposito
 stays readable. User logs are not rewritten. Workflow and Matt Pocock skills remain
 separate packages with their own attribution.
 
-Runtime preparation does not authorize hook execution. Activation is explicit:
+New distributions have no `hook:watcher` binding or `skill observe` collector.
+`atm install hooks` fails before locks, runtime preparation or configuration writes.
+A retained `watcher` dependency group serves historical reports and audit helpers,
+not automatic collection. The four maintenance skills remain callable.
+
+Old recorded hook ownership stays readable. Remove only those exact entries before
+syncing new content; changed or unproven entries refuse removal. This works even if
+the old interpreter is missing and never executes a collector:
 
 ```sh
-atm install hooks --harness codex --dry-run
-atm install hooks --harness codex
 atm check hooks --harness codex
 atm uninstall hooks --harness codex --dry-run
 atm uninstall hooks --harness codex
+atm harness sync
 ```
 
-Rust merges only owned hook entries and preserves unrelated configuration.
-Repeated enable/disable is idempotent; edited owned entries cause a conflict.
-Disabling hooks does not delete logs, reports or retained runtime environments.
+Uninstall preserves foreign configuration, historical logs/reports and old runtime
+environments. Legacy adoption still retires exactly proven predecessor Watcher
+groups. Importing or distributing content never enables hooks.
 
 ## One-time legacy handoff
 

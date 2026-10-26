@@ -692,6 +692,8 @@ fn catalog(
         return Err(invalid());
     }
     for key in manifest.runtime_bindings.keys() {
+        // Read old cached manifests for receipt/recovery compatibility only.
+        // New bundles omit this retired binding; the service refuses activation.
         if key != "hook:watcher" && !current_ids.contains(key) && !identities.contains(key) {
             return Err(invalid());
         }

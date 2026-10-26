@@ -16,9 +16,9 @@ Harness 分发由 `atm-core::distribution::Service` 的 Rust 实现负责，CLI 
 
 - `atm harness bootstrap` 校验版本化 manifest 和每个内容摘要，生成 canonical catalog JSON，再缓存选定发布内容；`sync` 更新缓存引用。两者都不需要 Python、不下载解释器、不启用 hooks。完整缓存可离线安装、更新、卸载静态 skills。
 - Rust 拥有来源校验、版本锁定、缓存、计划、应用、适配器、receipt、锁及 journal 恢复。一个物理目标只有一个 owner；同名外来文件和用户修改会阻止变更，不按文件名猜测接管。跨文件操作由 journal 保护，不宣称完全原子；中断后显式执行 `atm harness recover`。
-- 状态查询只读记录，不创建安装、不探测 Python、不解释为实时健康。主动 `check`/`doctor` 检查已记录文件与缓存；有已启用 hook 时也检查该已准备 runtime。GUI 仍要求明确目标与一次操作确认。
-- Python 只属于声明了它的 skill/hook payload。`runtime prepare` 需要显式解释器绝对路径，按依赖组和内容版本创建最终路径 venv，检查成功后才切换引用。外部 venv 只验证；不修改项目 `.venv` 或全局 Python。离线缺 wheel/依赖会明确报错，旧有效环境保留。
-- Watcher 自动采集、事件和报告 helper 位于 `harness/runtimes/watcher/`，只读 Rust catalog 快照，不扫描整仓或导入 Python 安装器。四个交互工作流保留在 `plugins/maintenance/`；历史 `watcher:<skill>` 身份与 attribution overlays 保持可读，用户日志不改写。准备 runtime 与启用 hook 是两个命令；卸载保留日志、报告和用户文件。
+- 状态查询只读记录，不创建安装、不探测 Python、不解释为实时健康。主动 `check`/`doctor` 检查已记录文件与缓存；发现旧 skill-watcher hook 时提示显式退役，不启动 Python。GUI 仍要求明确目标与一次操作确认。
+- Python 只属于声明了它的内容脚本。`runtime prepare` 需要显式解释器绝对路径，按依赖组和内容版本创建最终路径 venv，检查成功后才切换引用。外部 venv 只验证；不修改项目 `.venv` 或全局 Python。离线缺 wheel/依赖会明确报错，旧有效环境保留。
+- 历史事件、报告和文档审计 helper 位于 `harness/runtimes/watcher/`，只读 Rust catalog 快照，不扫描整仓或导入 Python 安装器。四个交互工作流保留在 `plugins/maintenance/`；历史 `watcher:<skill>` 身份与 attribution overlays 保持可读，用户日志不改写。skill-watcher hook 和自动采集入口已退役；仅保留基于 ownership 的旧条目卸载，保留日志、报告和用户文件。
 - 旧 Python 状态只能通过显式 `atm harness adopt` 一次性交接。普通 bootstrap/sync 不自动收编；不长期维护两个分发引擎。没有自动部署、刷新本机入口或变更 PATH。
 
 使用说明见 [Harness 工作流](harness/README.md)；本次迁移的验证范围见 [验收矩阵](docs/ACCEPTANCE_MATRIX.md)。此前平台 CI 通过记录不是新 Rust 分发的原生平台验收。
@@ -45,7 +45,7 @@ atm update skills --harness <ID>[,<ID>...]         # 更新受管文件，拒绝
 atm uninstall skills --harness <ID>[,<ID>...]      # 移除分发
 atm check skills --harness <ID>[,<ID>...] [--strict] # Rust 完整性诊断
 atm repair skills --harness <ID>[,<ID>...]         # 重新应用受管内容，不改 PATH
-atm install/uninstall/check hooks --harness codex [--dry-run]   # Codex watcher 钩子
+atm uninstall/check hooks --harness codex          # 退役/检查旧 skill-watcher；仅 uninstall 接受 --dry-run
 
 # 本地技能模态（与 GUI「本地技能管理」同源）
 atm list skills [--json] [--trash]                 # 盘点工具根与保管区
@@ -64,9 +64,9 @@ atm harness adopt [--home PATH] [--retire-missing ID[,ID...]]
 atm harness recover [--home PATH]
 atm harness plan install --harness zcode
 # 仅在需要选定 Python payload 时准备；Windows 同样传绝对路径
-atm harness runtime prepare watcher --python /absolute/path/to/python3 --offline
-atm install hooks --harness codex --dry-run
-atm install hooks --harness codex
+atm harness runtime prepare workflow --python /absolute/path/to/python3 --offline
+atm uninstall hooks --harness codex --dry-run
+atm uninstall hooks --harness codex
 ```
 
 旧 `atm skills ...` 名词式语法已随本次合并移除（`inventory→list skills`、`install <SRC> <ROOT> [NAME]→install skills <SRC> --to <ROOT> [--name]`、`trash→list skills --trash`、`refresh→update skills`）。`atm harness --` 只接受受限的已知 Rust 命令，不再转发任意引擎 argv 或 machine 协议；参数限幅（≤64 项/单项 ≤4 KiB/总量 ≤32 KiB）。
