@@ -34,13 +34,14 @@ def main():
         env.update(HOME=str(user), USERPROFILE=str(user), ATM_HOME=str(home),
                    APPDATA=str(user / "appdata"), LOCALAPPDATA=str(user / "localappdata"),
                    XDG_DATA_HOME=str(user / ".local/share"), XDG_CONFIG_HOME=str(user / ".config"),
-                   PYTHONNOUSERSITE="1", PYTHONDONTWRITEBYTECODE="1", PIP_DISABLE_PIP_VERSION_CHECK="1")
+                   PYTHONNOUSERSITE="1", PYTHONDONTWRITEBYTECODE="1", PYTHONUTF8="1",
+                   PYTHONIOENCODING="utf-8", PIP_DISABLE_PIP_VERSION_CHECK="1")
         # Exercise automatic Python discovery, not ATM_BOOTSTRAP_PYTHON.
         env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", "")
 
         def run(*arguments, success=True):
             result = subprocess.run([str(cli), *arguments], cwd=root, env=env,
-                                    input="", text=True, capture_output=True, timeout=240)
+                                    input="", encoding="utf-8", errors="replace", capture_output=True, timeout=240)
             if (result.returncode == 0) != success:
                 raise RuntimeError(f"{arguments}: exit {result.returncode}\n{result.stdout}\n{result.stderr}")
             return result
