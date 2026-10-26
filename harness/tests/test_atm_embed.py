@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -67,7 +68,7 @@ class EmbeddedMaterializationTests(unittest.TestCase):
         self.assertEqual(marker["embeddedVersion"], release)
         manager = json.loads(manager_file(self.home).read_text(encoding="utf-8"))
         expected_revision = hashlib.sha256(
-            f"{bundle}|{release}".encode("utf-8")
+            f"{marker['engineIdentity']}|{release}".encode("utf-8")
         ).hexdigest()[:40]
         self.assertEqual(manager["revision"], expected_revision)
         self.assertEqual(manager["channel"], "embedded")
@@ -165,12 +166,12 @@ class EmbeddedMaterializationTests(unittest.TestCase):
                                   capture_output=True, text=True, check=True).stdout.strip()
         legacy_identity = require_repository_identity(legacy)
         (home / "state/install.json").write_text(json.dumps({
-            "product": "atm-harness", "status": "ready",
+            "product": "oh-my-harness", "status": "ready",
             "repository": "https://example.invalid/atm-harness.git",
             "revision": revision, "ref": "main", "harness": "codex",
         }), encoding="utf-8")
         (home / "state/manager.json").write_text(json.dumps({
-            "schemaVersion": "2026-08-24", "product": "atm-harness", "status": "ready",
+            "schemaVersion": "2026-08-24", "product": "oh-my-harness", "status": "ready",
             "repository": "https://example.invalid/atm-harness.git",
             "channel": "main", "requestedRef": "origin/main", "revision": revision,
             "releaseVersion": legacy_identity["releaseVersion"],
@@ -180,8 +181,20 @@ class EmbeddedMaterializationTests(unittest.TestCase):
             "schemaVersion": "2026-08-24", "harnesses": ["codex"],
             "updatePolicy": {"channel": "main"}, "updatedAt": "test",
         }), encoding="utf-8")
+        receipt_before = (home / "state/install.json").read_bytes()
+        desired_before = desired_file(home).read_bytes()
+        receipts = home / "state/harnesses"
+        receipts.mkdir()
+        receipt_file = receipts / "codex.json"
+        receipt_file.write_text('{"TEST_ONLY":"preserve receipt"}')
+        user_config = self.root / "user-config.json"
+        user_config.write_text('{"TEST_ONLY":"user config"}')
         result = self.embed("sync", "--source", str(self.source), "--home", str(home))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((home / "state/install.json").read_bytes(), receipt_before)
+        self.assertEqual(desired_file(home).read_bytes(), desired_before)
+        self.assertEqual(receipt_file.read_text(), '{"TEST_ONLY":"preserve receipt"}')
+        self.assertEqual(user_config.read_text(), '{"TEST_ONLY":"user config"}')
         self.assertTrue((home / "repo" / _MARKER).is_file())
         self.assertFalse((home / "repo/.git").exists())
         manager = json.loads(manager_file(home).read_text(encoding="utf-8"))
@@ -191,6 +204,21 @@ class EmbeddedMaterializationTests(unittest.TestCase):
         self.assertEqual(desired["harnesses"], ["codex"])
         backups = home / "state/repair-backups"
         self.assertTrue(any(backups.iterdir()))
+
+    def test_engine_only_upgrade_and_failed_state_write_preserve_old_install(self):
+        atm_embed.command_materialize(self.source, self.home)
+        old_manager = manager_file(self.home).read_bytes()
+        old_engine = (self.home / "repo/scripts/engine.py").read_bytes()
+        source_engine = self.source / "scripts/engine.py"
+        source_engine.write_bytes(old_engine + b"\n# TEST_ONLY engine upgrade\n")
+        with mock.patch.object(atm_embed, "_write_state", side_effect=OSError("TEST_ONLY write failure")):
+            with self.assertRaises(OSError):
+                atm_embed.command_sync(self.source, self.home)
+        self.assertEqual(manager_file(self.home).read_bytes(), old_manager)
+        self.assertEqual((self.home / "repo/scripts/engine.py").read_bytes(), old_engine)
+        atm_embed.command_sync(self.source, self.home)
+        self.assertEqual((self.home / "repo/scripts/engine.py").read_bytes(), source_engine.read_bytes())
+        self.assertNotEqual(manager_file(self.home).read_bytes(), old_manager)
 
     def test_bootstrap_materializes_then_builds_venv(self):
         fake = self.source / "scripts/bootstrap_tooling_env.py"
@@ -271,13 +299,19 @@ class EmbeddedEngineBehaviorTests(unittest.TestCase):
         self.assertIn("identity", refresh.stderr)
         status = self.cli("status", "--json")
         self.assertEqual(status.returncode, 0, status.stdout + status.stderr)
+        atm_embed.command_sync(self.source, self.home)
+        self.assertEqual(plugin.read_bytes(), (self.source / "plugins/workflow/README.md").read_bytes())
+        # Reach target validation after the repaired content gate; no real tools.
+        from embedded_identity import content_identity
+        marker = json.loads((self.home / "repo" / _MARKER).read_text())
+        self.assertEqual(content_identity(self.home / "repo"), marker["engineIdentity"])
 
     def test_stable_revision_is_derived_from_identity(self):
         status = self.cli("status", "--json")
         payload = json.loads(status.stdout)
         marker = json.loads((self.home / "repo" / _MARKER).read_text(encoding="utf-8"))
         expected = hashlib.sha256(
-            f"{marker['embeddedIdentity']}|{marker['embeddedVersion']}".encode("utf-8")
+            f"{marker['engineIdentity']}|{marker['embeddedVersion']}".encode("utf-8")
         ).hexdigest()[:40]
         self.assertEqual(payload["manager"]["revision"], expected)
         self.assertRegex(expected, r"^[0-9a-f]{40}$")

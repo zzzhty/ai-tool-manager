@@ -201,7 +201,8 @@ def load_or_initialize(
     return manager, desired
 
 
-def load_state_snapshot(home: Path, *, registry: HarnessRegistry | None = None) -> dict[str, Any]:
+def load_state_snapshot(home: Path, *, registry: HarnessRegistry | None = None,
+                        adopt_omh: bool = False) -> dict[str, Any]:
     """Read recorded state only: never initialize, hash sources or inspect Git."""
     manager = _load_object(manager_file(home), label="manager state", required=False)
     desired = _load_object(desired_file(home), label="desired harness state", required=False)
@@ -210,6 +211,10 @@ def load_state_snapshot(home: Path, *, registry: HarnessRegistry | None = None) 
                          "must exist or both must be absent")
     initial = None
     if manager is not None:
+        # Only explicit ATM sync can adopt this known predecessor. Status and
+        # normal lifecycle operations keep the strict product gate.
+        if adopt_omh and manager.get("product") == "oh-my-harness":
+            manager = {**manager, "product": PRODUCT_NAME}
         _validate_manager_payload(manager, path=manager_file(home))
         assert desired is not None
         _validate_desired_payload(desired, path=desired_file(home))
@@ -218,7 +223,12 @@ def load_state_snapshot(home: Path, *, registry: HarnessRegistry | None = None) 
     else:
         initial_path = state_root(home) / "install.json"
         if initial_path.exists():
-            initial = install_receipt(home)
+            if adopt_omh:
+                initial = _load_object(initial_path, label="initial installation receipt")
+                if initial.get("product") not in {PRODUCT_NAME, "oh-my-harness"} or initial.get("status") != "ready":
+                    raise SystemExit("legacy installation receipt has invalid product/status")
+            else:
+                initial = install_receipt(home)
         harnesses = []
     operation = load_current_operation(home)
     if operation is not None:

@@ -17,7 +17,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "AI Tool Manager \u00b7 Rust \u9884\u89c8\u7248",
+        "title": "AI Tooling Manager \u00b7 Rust \u9884\u89c8\u7248",
         "width": 1100,
         "height": 780,
         "minWidth": 580,

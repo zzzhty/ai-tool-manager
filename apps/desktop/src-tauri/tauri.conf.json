@@ -2,13 +2,13 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "atm",
   "version": "0.2.0",
-  "identifier": "com.ai-tool-manager.desktop",
+  "identifier": "com.ai-tooling-manager.desktop",
   "build": {
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [{ "label": "main", "title": "AI Tool Manager · Rust 预览版", "width": 1100, "height": 780, "minWidth": 580, "minHeight": 420 }],
+    "windows": [{ "label": "main", "title": "AI Tooling Manager · Rust 预览版", "width": 1100, "height": 780, "minWidth": 580, "minHeight": 420 }],
     "security": {
       "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src ipc: http://ipc.localhost; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'",
       "capabilities": ["main"]

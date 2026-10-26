@@ -1,6 +1,6 @@
 # ATM Harness
 
-> **This tree is now vendored into [ATM (ai-tool-manager)](https://github.com/zzzhty/ai-tool-manager)**
+> **This tree is now vendored into [ATM (ai-tooling-manager)](https://github.com/zzzhty/ai-tooling-manager)**
 > as its embedded harness distribution engine. ATM is the single source of truth;
 > the standalone repository and `install.sh` / `omh update` flows are retired.
 > Terminal entry point: `atm harness bootstrap` (materialize + venv), then the
@@ -30,7 +30,7 @@ From an ATM checkout with the vendored engine:
 ```bash
 atm harness bootstrap            # materialize the embedded engine + venv (first run fetches Python deps)
 atm harness status               # recorded-state snapshot
-atm install skills --harness vscode --dry-run   # preview via the engine escape hatch if needed
+atm harness -- install vscode --dry-run        # preview with the engine escape hatch
 atm install skills --harness vscode             # apply (interactive confirmations stay native)
 ```
 
@@ -43,8 +43,8 @@ After setup, use `atm harness --` for everyday engine work:
 atm harness -- install claude gemini --dry-run  # Preview adding more harnesses
 atm harness -- install claude gemini           # Apply after reviewing the preview
 atm harness -- refresh                        # Reapply the installed version
-atm harness -- update --check                 # Fetch and preview an update
-atm harness -- update                         # Apply the update
+atm harness sync                             # Sync the engine shipped by the upgraded ATM
+atm update skills --harness vscode            # Reapply the selected distribution
 atm harness -- check                          # Check installed skills and instructions
 atm harness -- remove copilot --dry-run       # Preview removing managed Copilot resources
 ```
@@ -242,14 +242,14 @@ same manager lifecycle used by the engine:
 | Add a harness | `atm harness -- install copilot` | No target means `codex`; records the harness for future updates. |
 | Reapply current files | `atm harness -- refresh` | All installed harnesses; no remote fetch. An explicit target does not add it to the recorded set: use `install` for that. |
 | Repair Codex caches | `atm harness -- refresh codex --repair` | Explicitly rebuilds caches at the current version. |
-| Preview an update | `atm harness -- update --check` | Fetches and validates the remote target without applying it. |
-| Apply an update | `atm harness -- update` | Updates the manager and all installed harnesses using the saved channel. |
+| Sync an ATM upgrade | `atm harness sync` | Copies the shipped engine; preserves receipts and desired targets. |
+| Reapply an upgrade | `atm update skills --harness <ID>` | Applies the synced distribution to an already installed target. |
 | Inspect state | `atm harness status` | Reads recorded harnesses, channel, successful receipts, and active operation; no live health check. |
 | Validate files | `atm harness -- check` | Read-only; all installed harnesses unless targets are given. |
 | Diagnose warnings | `atm harness -- doctor` | The same checks, with warnings treated as failures; does not repair. |
 | Remove a harness | `atm harness -- remove copilot` | Explicit targets or `--all` required; removes only proven managed resources. |
-| Repair the installation | `atm harness -- repair` | Repairs the recorded checkout, runtime, launchers, user PATH and selected harnesses; default is all installed harnesses. |
-| Recover an update | `atm harness -- recover` | Rolls back an interrupted update using its operation journal. |
+| Repair a distribution | `atm repair skills --harness <ID>` | Repairs selected managed resources without changing PATH; use `atm harness sync` for engine drift. |
+| Recover a failed sync | Inspect `state/repair-backups/sync-*` | Ordinary failures restore the previous engine and rolling state; hard interruption requires explicit inspection. |
 | Uninstall the manager | `atm harness -- manager uninstall` | Requires an empty harness set, or `--with-harnesses`; unknown files block deletion unless `--purge-unknown` is explicit. |
 
 Running `atm harness --` without a command means `atm harness -- refresh`. `--home PATH` goes before
@@ -278,15 +278,10 @@ presented as the current revision. One missing rolling file or malformed state
 still fails clearly. Snapshot reads do not initialize or migrate state and are
 not an atomic view of a concurrent update; inspect the displayed operation.
 
-The checkout must still supply the CLI for full help and snapshots. If it is
-missing, the stable shim shows recovery help. A missing or partially damaged
-checkout (including unreadable registry metadata/imports) accepts only `repair`'s
-restoration flags (`--reclone`, `--rebuild`, `--dry-run`, `--yes`, `--no-path`);
-restore the checkout before selecting named harnesses or migration options.
-A newer shim paired with an older checkout during rollback uses that checkout's
-existing parser. Older CLI snapshot/parser dependencies remain in effect until
-the new checkout is active; this does not retrofit lightweight behavior into
-an old manager.
+The materialized engine and tooling venv must exist for delegated commands.
+If the engine is missing or damaged, use `atm harness sync`; bootstrap creates
+the venv on first use. Release builds resolve only the adjacent `harness/` tree
+or explicit `ATM_ENGINE_SOURCE`, never the build machine checkout.
 
 `HARNESS` selects an atm-harness distribution, not the harness application
 itself. Install and configure the Pi, Claude Code, Gemini CLI, or other client
@@ -296,44 +291,12 @@ rather than duplicated in the CLI. `atm harness -- install --all` installs every
 registry choice, while `--all` on refresh, repair, remove, check, or doctor selects the
 desired harness set already recorded by the manager.
 
-When a harness was added after the installed manager revision, update the
-manager before selecting it. The stable channel follows the latest `vX.Y.Z`
-release; use `main` only when the required harness is present on `origin/main`
-but not yet in a stable release:
-
-```bash
-atm harness -- update --check --channel main
-atm harness -- update --channel main
-atm harness -- install pi-agent --dry-run
-atm harness -- install pi-agent --yes
-```
-
-Do not move or pull `${ATM_HOME:-$HOME/.atm}/repo`
-directly. If update reports that the managed checkout differs from manager
-lifecycle state, run `atm harness status`. With `operation: none`, run
-`atm harness -- repair` to restore the recorded version, then retry the update. Repair
-recovers known interrupted updates before reconciling installed harnesses;
-`atm harness -- recover` remains available as a rollback-only command. Healthy checkouts
-are reused, damaged checkouts are restored from local Git objects when possible,
-and replaced directories are preserved under `state/repair-backups/`. Use
-`--reclone` to restore from the recorded remote and `--rebuild` to recreate the
-tooling venv. `--dry-run` previews recovery without writing. The existing
-`atm harness -- manager repair` and `atm harness -- refresh --repair` spellings remain supported.
-
-`atm harness -- refresh` never fetches remote source; it reconciles the current managed
-release. `atm harness -- update` is the explicit remote transition and uses the saved
-channel. New installations from `main` start on `main`; release-tag installs
-start on `stable`. Existing saved channels are preserved. `atm harness -- update main` or
-`atm harness -- update stable` selects and saves that channel; legacy `--channel` and `--to`
-options remain supported. An update at the same commit still reconciles user
-PATH, launchers, and installed harnesses. To upgrade an older manager that does
-not recognize positional update targets, use `atm harness -- update --channel main` once.
-`--check` fetches remote refs but does not switch the installed version or save a
-channel change. A Git ref or `--to REF` overrides only this update's target. A target
-that is not a fast-forward descendant requires explicit `--allow-downgrade`.
-Same-version content drift remains a hard failure during ordinary refresh and is
-re-materialized only by explicit `--repair`. `remove` deletes only resources
-whose manager ownership is proven.
+When a harness is added in a newer ATM release, upgrade the complete ATM
+package and run `atm harness sync` before selecting it. Do not move, edit or
+pull `${ATM_HOME:-$HOME/.atm}/repo` directly. Embedded mode rejects Git update,
+recover and reclone; use the packaged source for sync and inspect manager status
+if an active operation blocks it. Legacy standalone Git lifecycle behavior is
+retained in source solely for old-install recovery and synthetic tests.
 
 The immutable `state/install.json` remains the initial bootstrap receipt.
 Rolling manager state is kept in `manager.json`, `desired.json`, per-harness
@@ -341,6 +304,13 @@ receipts, and an update operation journal. Mutating lifecycle commands share one
 manager lock.
 
 ## Release And Plugin Distribution Identity
+
+ATM materialization owns `engineIdentity` (`atm-engine-content-v1`) over the
+complete shipped tree. Sync compares both the package and installed tree; the
+embedded write boundary refuses drift. `embeddedIdentity` / `bundleIdentity`
+keep their narrower plugin-generation meaning and existing tests. Recorded
+status does not hash content. See [ADR 0027](docs/adr/0027-atm-embedded-distribution.md).
+
 
 `VERSION` is the canonical `atm-harness` release version. All repository plugins use that value as their base version. Every complete plugin version ends in `+codex.<generation>`, where `generation` is derived from the canonical plugin package content rather than a timestamp. `.agents/plugins/distribution-identity.json` records the full per-package SHA-256 values and the release-level bundle identity.
 
@@ -438,7 +408,15 @@ disjoint write scope. The managed support file lives in
 `docs/codex-agent-support.md`. Local custom-agent preset TOML is not maintained
 in this repository.
 
-## Local Install
+## Archived Standalone Install Reference
+
+The following section describes the retired standalone OMH installer and its
+persisted layout, for interpreting old receipts and recovery tests. It is not
+the ATM installation path. New installations use the complete ATM package and
+`atm harness bootstrap`; an existing OMH home is explicitly adopted with
+`atm harness sync --home /absolute/old/home`. No harness receipt or target
+configuration is rewritten during that adoption.
+
 
 The initializer creates one manager-owned installation under
 `${OH_MY_HARNESS_HOME:-$HOME/.oh-my-harness}`. The retired `install.sh` /

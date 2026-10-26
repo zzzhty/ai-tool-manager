@@ -45,8 +45,9 @@ from manager_state import (
     write_manager,
 )
 from plugin_package_identity import require_repository_identity
+from embedded_identity import ALGORITHM, content_identity
 
-ATM_REPOSITORY = "https://github.com/zzzhty/ai-tool-manager"
+ATM_REPOSITORY = "https://github.com/zzzhty/ai-tooling-manager"
 MARKER_NAME = ".atm-embedded.json"
 _COPY_IGNORE = shutil.ignore_patterns(".git", "__pycache__", "*.pyc", "*.pyo", ".venv")
 
@@ -59,7 +60,7 @@ def _embedded_revision(payload: dict) -> str:
     import hashlib
 
     digest = hashlib.sha256(
-        f"{payload['embeddedIdentity']}|{payload['embeddedVersion']}".encode("utf-8")
+        f"{payload['engineIdentity']}|{payload['embeddedVersion']}".encode("utf-8")
     ).hexdigest()
     return digest[:40]
 
@@ -77,25 +78,26 @@ def _read_marker(repo: Path) -> dict | None:
     return payload
 
 
-def _write_state(home: Path, release: str, bundle: str, *, fresh: bool) -> None:
+def _write_state(home: Path, release: str, bundle: str, engine: str, *,
+                 harnesses: list[str]) -> None:
     marker_values = {
         "repository": ATM_REPOSITORY,
         "revision": _embedded_revision(
-            {"embeddedIdentity": bundle, "embeddedVersion": release}
+            {"engineIdentity": engine, "embeddedVersion": release}
         ),
         "release_version": release,
         "bundle_identity": bundle,
         "channel": "embedded",
         "requested_ref": "embedded",
     }
-    if fresh and not desired_file(home).is_file():
+    if not desired_file(home).is_file():
         # write_desired only updates an existing file; seed the initial payload
         # in the schema _validate_desired_payload accepts.
         atomic_write_json(
             desired_file(home),
             {
                 "schemaVersion": STATE_SCHEMA_VERSION,
-                "harnesses": [],
+                "harnesses": harnesses,
                 "updatePolicy": {"channel": "stable"},
                 "updatedAt": _now(),
             },
@@ -103,31 +105,59 @@ def _write_state(home: Path, release: str, bundle: str, *, fresh: bool) -> None:
     write_manager(home, status="ready", **marker_values)
 
 
-def _stage_and_swap(source: Path, home: Path, release: str, bundle: str) -> None:
+def _stage_and_swap(source: Path, home: Path, release: str, bundle: str,
+                    engine: str, harnesses: list[str]) -> None:
     repo = home / "repo"
     staging = home / f".repo.materialize-{uuid.uuid4().hex}"
-    backups = home / "state" / "repair-backups"
+    backup = home / "state" / "repair-backups" / f"sync-{uuid.uuid4().hex}"
+    state_before = {path: path.read_bytes() if path.exists() else None
+                    for path in (manager_file(home), desired_file(home))}
+    retired = False
+    installed = False
     try:
         shutil.copytree(source, staging, ignore=_COPY_IGNORE)
+        if content_identity(staging) != engine:
+            raise SystemExit("embedded source changed during staging; retry from a stable release")
         marker = {
-            "sourceMode": "atm-embedded",
-            "atmRepository": ATM_REPOSITORY,
-            "embeddedVersion": release,
-            "embeddedIdentity": bundle,
+            "sourceMode": "atm-embedded", "atmRepository": ATM_REPOSITORY,
+            "embeddedVersion": release, "embeddedIdentity": bundle,
+            "engineIdentity": engine, "engineIdentityAlgorithm": ALGORITHM,
             "materializedAt": _now(),
         }
-        (staging / MARKER_NAME).write_text(
-            json.dumps(marker, indent=2) + "\n", encoding="utf-8"
-        )
+        atomic_write_json(staging / MARKER_NAME, marker)
+        backup.mkdir(parents=True)
+        for path, data in state_before.items():
+            if data is not None:
+                (backup / path.name).write_bytes(data)
+        # Keep the historical install receipt unchanged, with a recovery copy.
+        receipt = home / "state/install.json"
+        if receipt.is_file():
+            shutil.copy2(receipt, backup / "install.json")
         if repo.exists():
-            backups.mkdir(parents=True, exist_ok=True)
-            preserved = backups / f"repo-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
-            os.replace(repo, preserved)
-            print(f"preserved previous checkout: {preserved}")
+            os.replace(repo, backup / "repo")
+            retired = True
         os.replace(staging, repo)
+        installed = True
+        _write_state(home, release, bundle, engine, harnesses=harnesses)
+    except BaseException:
+        # Restore the recorded state and checkout together on ordinary failure.
+        # A hard interruption leaves this named backup available for inspection.
+        if installed:
+            os.replace(repo, backup / "failed-repo")
+        if retired:
+            os.replace(backup / "repo", repo)
+        if installed:
+            for path, data in state_before.items():
+                if data is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    temporary = path.with_name(f".{path.name}.restore-{uuid.uuid4().hex}")
+                    temporary.write_bytes(data)
+                    os.replace(temporary, path)
+        raise
     finally:
         if staging.exists():
-            shutil.rmtree(staging, ignore_errors=True)
+            shutil.rmtree(staging)
 
 
 def _source_identity(source: Path) -> tuple[str, str]:
@@ -154,8 +184,7 @@ def command_materialize(source: Path, home: Path) -> int:
             raise SystemExit(
                 "manager home already has lifecycle state; run `atm harness sync` instead"
             )
-        _stage_and_swap(source, home, release, bundle)
-        _write_state(home, release, bundle, fresh=True)
+        _stage_and_swap(source, home, release, bundle, content_identity(source), [])
     print(f"materialized embedded engine {release} ({bundle}) into {home / 'repo'}")
     return 0
 
@@ -169,19 +198,32 @@ def command_sync(source: Path, home: Path) -> int:
                 "an interrupted manager operation is active; resolve it with "
                 "`atm harness status` before syncing"
             )
-        snapshot = load_state_snapshot(home)
+        snapshot = load_state_snapshot(home, adopt_omh=True)
         manager = snapshot.get("manager")
         if isinstance(manager, dict) and manager.get("status") == "degraded":
             raise SystemExit(
                 "manager lifecycle is degraded; inspect `atm harness status` before syncing"
             )
         existing = _read_marker(home / "repo")
-        if existing is not None and existing.get("embeddedIdentity") == bundle:
+        engine = content_identity(source)
+        if (existing is not None and existing.get("engineIdentityAlgorithm") == ALGORITHM
+                and existing.get("engineIdentity") == engine
+                and existing.get("embeddedVersion") == release
+                and existing.get("embeddedIdentity") == bundle
+                and manager is not None and manager.get("channel") == "embedded"
+                and manager.get("revision") == _embedded_revision(existing)
+                and manager.get("bundleIdentity") == bundle
+                and manager.get("repository") == ATM_REPOSITORY
+                and manager.get("releaseVersion") == release
+                and content_identity(home / "repo") == engine):
             print(f"embedded engine already materialized at {release}")
             return 0
         had_state = manager_file(home).is_file()
-        _stage_and_swap(source, home, release, bundle)
-        _write_state(home, release, bundle, fresh=not had_state)
+        names = snapshot.get("desiredHarnesses", [])
+        receipt = snapshot.get("initialReceipt")
+        if not had_state and receipt and isinstance(receipt.get("harness"), str):
+            names = [receipt["harness"]]
+        _stage_and_swap(source, home, release, bundle, engine, names)
         if had_state and snapshot.get("desiredHarnesses"):
             print(
                 "recorded harnesses were kept; run `atm update skills --harness <ID>` "
@@ -193,12 +235,7 @@ def command_sync(source: Path, home: Path) -> int:
 
 def command_bootstrap(source: Path, home: Path, *, rebuild: bool = False) -> int:
     validate_manager_home(home)
-    release, bundle = _source_identity(source)
-    existing = _read_marker(home / "repo")
-    if existing is None or existing.get("embeddedIdentity") != bundle or not manager_file(home).is_file():
-        command_sync(source, home)
-    else:
-        print(f"embedded engine already materialized at {release}")
+    command_sync(source, home)
     command_line = [
         sys.executable,
         str(source / "scripts" / "bootstrap_tooling_env.py"),

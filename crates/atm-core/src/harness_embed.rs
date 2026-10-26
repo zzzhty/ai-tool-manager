@@ -4,7 +4,7 @@
 //! consumed only by `atm-cli`.
 //!
 //! Resolution order for the embedded source tree: `ATM_ENGINE_SOURCE` override,
-//! an `atm/` directory beside the executable (installed layouts), then the
+//! a `harness/` directory beside the executable (installed layouts), then the
 //! compile-time repository path (development checkouts and cargo tests).
 use crate::{Error, Result};
 use std::path::{Path, PathBuf};
@@ -40,9 +40,13 @@ pub fn embedded_source_dir() -> Result<PathBuf> {
             }
         }
     }
-    let compiled = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../harness");
-    if compiled.join("scripts/engine.py").is_file() {
-        return Ok(compiled);
+    // Release distributions must be self-contained; never use the build host checkout.
+    #[cfg(debug_assertions)]
+    {
+        let compiled = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../harness");
+        if compiled.join("scripts/engine.py").is_file() {
+            return Ok(compiled);
+        }
     }
     Err(source_error())
 }
@@ -58,8 +62,12 @@ fn python_version(path: &Path) -> Option<(u32, u32)> {
     } else {
         text
     };
-    let mut parts = line.split_whitespace();
-    let major = parts.nth(1)?.parse().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let version = line.strip_prefix("Python ")?.split_whitespace().next()?;
+    let mut parts = version.split('.');
+    let major = parts.next()?.parse().ok()?;
     let minor = parts.next()?.parse().ok()?;
     Some((major, minor))
 }
@@ -75,13 +83,7 @@ pub fn base_python() -> Result<PathBuf> {
         };
         match python_version(&path) {
             Some(version) if version >= (3, 11) => return Ok(path),
-            Some(_) => {
-                return Err(Error::new(
-                    "HARNESS_PYTHON_MISSING",
-                    "系统 Python 版本过低（需要 3.11+）；请安装后重试。",
-                ))
-            }
-            None => continue,
+            _ => continue,
         }
     }
     Err(Error::new(

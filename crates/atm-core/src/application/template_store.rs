@@ -1,5 +1,5 @@
 //! Separate encrypted metadata for confirmed templates and their schema-bound target assignments.
-use atm_core::{
+use crate::{
     storage::{self, Protector},
     templates::{self, Template},
     vault::{encrypted_read_with, encrypted_write_with},
@@ -54,7 +54,7 @@ impl TemplateStore {
             if directory.join("templates.required").exists() {
                 return Err(Error::new(
                     "TEMPLATE_STORE_MISSING",
-                    "模板侧车文件缺失；已拒绝启动以避免丢失 Schema 保护。请恢复备份。",
+                    "模板侧车文件缺失；已停用配置编辑以避免丢失 Schema 保护。请恢复备份。",
                 ));
             }
             return Ok(Self {
@@ -116,7 +116,7 @@ impl TemplateStore {
                 options.mode(0o600);
             }
             let mut required = options.open(&marker)?;
-            required.write_all(b"ai-tool-manager/template-sidecar/v1\n")?;
+            required.write_all(b"ai-tooling-manager/template-sidecar/v1\n")?;
             required.sync_all()?;
         }
         let path = Self::path(directory);
@@ -159,7 +159,7 @@ impl TemplateStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use atm_core::templates::{confirm_candidate, infer_candidate, ApplicationIdentity};
+    use crate::templates::{confirm_candidate, infer_candidate, ApplicationIdentity};
     fn mapping() -> TargetMapping {
         TargetMapping {
             id: Uuid::new_v4(),
@@ -259,7 +259,7 @@ mod tests {
         assert_eq!(reopened.templates.len(), 1);
         fs::remove_file(TemplateStore::path(&directory)).unwrap();
         assert_eq!(
-            TemplateStore::load_with_protector(&directory, atm_core::storage::system())
+            TemplateStore::load_with_protector(&directory, crate::storage::system())
                 .err()
                 .unwrap()
                 .code,

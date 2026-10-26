@@ -63,6 +63,8 @@ fn atm_command(env: &Env, arguments: &[&str]) -> Command {
         "CODEX_HOME",
         "GEMINI_CLI_HOME",
         "OPENCLAW_STATE_DIR",
+        "OPENCLAW_HOME",
+        "OPENCLAW_PROFILE",
         "PI_CODING_AGENT_DIR",
     ] {
         command.env_remove(key);
@@ -383,6 +385,16 @@ fn assert_private_directory(path: &Path) {
 
 #[test]
 fn child_cli_respects_registry_lock_and_recovers_after_release() {
+    const HOLDER: &str = "ATM_TEST_LOCK_HOLDER";
+    if let Some(path) = std::env::var_os(HOLDER) {
+        use std::io::Write;
+        let _lock = atm_core::windows::open_lock(Path::new(&path)).unwrap();
+        println!("LOCK_READY");
+        std::io::stdout().flush().unwrap();
+        let mut line = String::new();
+        std::io::stdin().read_line(&mut line).unwrap();
+        return;
+    }
     let env = Env::new();
     publish_fixture(&env, "alpha");
     remove_projection(&env.projection("alpha"));
@@ -390,9 +402,33 @@ fn child_cli_respects_registry_lock_and_recovers_after_release() {
     let registry_before = fs::read(registry_root.join("registry.json")).unwrap();
     let canonical_before = fs::read(env.canonical("alpha").join("SKILL.md")).unwrap();
 
-    // Hold the production OS lock in this process while a separate CLI process
-    // attempts both a read and a mutating repair. Neither should bypass it.
-    let lock = atm_core::windows::open_lock(&registry_root.join("registry.lock")).unwrap();
+    // A dedicated holder prevents unrelated parallel subprocess tests from
+    // inheriting this process's flock during fork and delaying its release.
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::Stdio;
+    let mut holder = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "child_cli_respects_registry_lock_and_recovers_after_release",
+            "--exact",
+            "--nocapture",
+        ])
+        .env(HOLDER, registry_root.join("registry.lock"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut output = BufReader::new(holder.stdout.take().unwrap());
+    loop {
+        let mut line = String::new();
+        assert_ne!(
+            output.read_line(&mut line).unwrap(),
+            0,
+            "lock holder exited before acquiring lock"
+        );
+        if line.trim() == "LOCK_READY" {
+            break;
+        }
+    }
     for arguments in [
         &["check", "skills", "alpha", "--json"][..],
         &["update", "skills", "alpha", "--force"][..],
@@ -411,7 +447,13 @@ fn child_cli_respects_registry_lock_and_recovers_after_release() {
             canonical_before
         );
     }
-    drop(lock);
+    holder
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"release\n")
+        .unwrap();
+    assert!(holder.wait().unwrap().success());
 
     assert_ok(&atm(&env, &["update", "skills", "alpha"]));
     assert!(env.projection("alpha").join("SKILL.md").is_file());
@@ -864,19 +906,21 @@ test "$5" = "--apply" || exit 9"#,
         .unwrap();
         let embedded = embedded_path.display().to_string();
         let script = script_path.display().to_string();
-        let base = sources.path().join("fake-python");
+        let base = sources.path().join("python3");
         fs::write(
             &base,
             format!(
-                "#!/bin/sh\ntest \"$1\" = \"{script}\" || exit 9\ntest \"$2\" = \"bootstrap\" || exit 9\ntest \"$3\" = \"--source\" || exit 9\ntest \"$4\" = \"{embedded}\" || exit 9\ntest \"$5\" = \"--home\" || exit 9\ntest \"$6\" = \"{}\" || exit 9\ntest \"$#\" = 6 || exit 9\nexit 0\n",
+                "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo Python 3.11.9; exit 0; fi\ntest \"$1\" = \"{script}\" || exit 9\ntest \"$2\" = \"bootstrap\" || exit 9\ntest \"$3\" = \"--source\" || exit 9\ntest \"$4\" = \"{embedded}\" || exit 9\ntest \"$5\" = \"--home\" || exit 9\ntest \"$6\" = \"{}\" || exit 9\ntest \"$#\" = 6 || exit 9\nexit 0\n",
                 manager_home(&env).display()
             ),
         )
         .unwrap();
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&base, fs::Permissions::from_mode(0o700)).unwrap();
-        let output = atm_command(&env, &["harness", "bootstrap"])
-            .env("ATM_BOOTSTRAP_PYTHON", &base)
+        let selected_home = manager_home(&env).display().to_string();
+        let output = atm_command(&env, &["harness", "bootstrap", "--home", &selected_home])
+            .env_remove("ATM_BOOTSTRAP_PYTHON")
+            .env("PATH", sources.path())
             .env("ATM_ENGINE_SOURCE", &embedded)
             .output()
             .unwrap();

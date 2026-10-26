@@ -1,4 +1,4 @@
-# AI Tool Manager（ATM）
+# AI Tooling Manager（ATM）
 
 本地 AI 工具管理器：Rust / Tauri，Linux、Windows 与 macOS；平台验证范围见下文。
 
@@ -12,7 +12,7 @@
 
 ## 内置技能分发引擎（harness）
 
-ATM 内置原 [oh-my-harness](https://github.com/zzzhty/oh-my-harness)（已归档）引擎源码（`harness/` 目录，Python，身份已全面更名 atm-harness），并以其为唯一的 harness 分发引擎：首次 `atm harness bootstrap` 将内嵌源码**物化**为 manager home（默认 `~/.atm`，尊重 `ATM_HOME`）内的非 git 分发 `<home>/repo`，并创建工具 venv（首次需联网安装 PyYAML/jsonschema，其余命令保持离线）。状态、收据、journal 与锁全部归 manager home 所有；引擎身份是**内容哈希**（bundleIdentity），更新随 ATM 版本发布——`atm harness sync` 重物化/收编旧 git 安装，原 update/recover/reclone 流程已退役。
+ATM 内置原 [oh-my-harness](https://github.com/zzzhty/oh-my-harness)（已归档）引擎源码（`harness/` 目录，Python，运行时产品标识为 atm-harness，旧收据通过显式 sync 收编），并以其为唯一的 harness 分发引擎：首次 `atm harness bootstrap` 将内嵌源码**物化**为 manager home（默认 `~/.atm`，尊重 `ATM_HOME`）内的非 git 分发 `<home>/repo`，并创建工具 venv（首次需联网安装 PyYAML/jsonschema，其余命令保持离线）。状态、收据、journal 与锁全部归 manager home 所有；完整引擎身份是 **engineIdentity**（涵盖 scripts、registry、agents 和插件）；原 **bundleIdentity** 仍只代表插件分发，更新随 ATM 版本发布——`atm harness sync` 重物化/收编旧 git 安装，原 update/recover/reclone 流程已退役。
 
 - 引擎按需读取**记录态快照**并探测 `machine --protocol 1 capabilities`，不轮询，不将记录就绪解释为实时健康。GUI 四个入口与 CLI 共用同一物化引擎。
 - `check` 校验安装，`doctor` 严格校验（警告视为失败），由用户主动点击触发。可能启动客户端子进程，不保证离线；界面仅呈现通过/发现问题及退出码，详细日志请在终端查看。
@@ -26,7 +26,7 @@ ATM 内置原 [oh-my-harness](https://github.com/zzzhty/oh-my-harness)（已归�
 
 “本地技能管理”面板直接盘点和操作各工具的技能根目录，**不依赖内置引擎安装**；引擎在场时自动识别其管理的投影链接并保护：
 
-- 内置 8 个工具根（Claude Code、Copilot CLI/VS Code、Codex、Z Code、Gemini CLI、OpenCode、OpenClaw、Pi Agent），路径语义与引擎 registry 一致并尊重对应环境变量（`CLAUDE_CONFIG_DIR`、`COPILOT_HOME`、`CODEX_HOME`、`GEMINI_CLI_HOME`、`OPENCLAW_STATE_DIR`、`PI_CODING_AGENT_DIR`）；`~/.agents/skills` 与所有点开头条目（含 Codex 系统技能 `.system`）永不列出或触碰。
+- 工具目录由引擎 registry 在 Rust 构建时生成，共 10 个工具（Claude Code、Copilot CLI、VS Code、Codex、Z Code、Gemini CLI、OpenCode、OpenClaw、Pi Agent、Oh My Pi）；保留 `copilot` 等输入别名和旧投影收据。VS Code 使用默认 `.copilot`，Copilot CLI 单独尊重 `COPILOT_HOME`，共享实际路径时禁止重复管理并尊重对应环境变量（`CLAUDE_CONFIG_DIR`、`COPILOT_HOME`、`CODEX_HOME`、`GEMINI_CLI_HOME`、`OPENCLAW_STATE_DIR`、`PI_CODING_AGENT_DIR`）；`~/.agents/skills` 与所有点开头条目（含 Codex 系统技能 `.system`）永不列出或触碰。
 - 盘点按条目分类：内置引擎管理链接（canonicalize 后位于引擎管理目录内，**只读**，变更请用 `atm harness` 命令）、其它链接（含断链）、本地目录、普通文件；技能名和描述读取 SKILL.md 的受限 frontmatter（仅字面 `name:`/`description:` 行），解析失败保持未知。
 - 安装只接受本机普通目录（含 SKILL.md、不含任何链接或非常规文件），上限 512 文件、8 MB、8 层嵌套；staging 后原子改名，同名条目一律拒绝不覆盖；目标根不存在时自动创建。
 - 卸载的目录技能移动到本管理器数据目录的 `skills-trash/` 保管区，可恢复（原根有同名则拒绝）或彻底删除（模态确认声明不可恢复）；外部链接（含断链）仅供查看，不提供复制或卸载入口，ATM 不触碰链接或其目标。
@@ -34,7 +34,7 @@ ATM 内置原 [oh-my-harness](https://github.com/zzzhty/oh-my-harness)（已归�
 
 ### atm CLI（统一命令行管理器）
 
-`crates/atm-cli` 提供与 GUI 同源（atm-core）的命令行入口 `atm`，是**完整管理器**；前端界面只是可选 UI 端。语法为动词优先 `atm <verb> <object>`：`--harness` 选择内置引擎模态（安装/重应用/移除/校验/修复完整分发，指令随行），省略则为本地技能模态。除 `atm harness bootstrap/sync` 首次联网安装 Python 依赖外全部离线；不访问密钥库：
+`crates/atm-cli` 提供与 GUI 同源（atm-core）的命令行入口 `atm`，提供完整的**技能与 harness 管理**；配置编辑与额度查询目前仍由桌面入口提供。语法为动词优先 `atm <verb> <object>`：`--harness` 选择内置引擎模态（安装/重应用/移除/校验/修复完整分发，指令随行），省略则为本地技能模态。`bootstrap` 首次安装 Python 依赖会联网，`sync` 从随包引擎离线同步；引擎诊断可能调用客户端；不访问密钥库：
 
 ```bash
 # 内置引擎模态（物化于 manager home；未 bootstrap 时指引 atm harness bootstrap）
@@ -107,7 +107,21 @@ Linux / Windows / macOS 的功能支持状态、合成 GUI/CLI 验证步骤与�
 - Windows x64：`npm run tauri:build` 产出 `target\release\atm-desktop.exe`，需已安装 WebView2 Runtime。
 - Linux：同命令产出 `target/release/atm-desktop`，需要可用且已解锁的会话 keyring 与 WebKitGTK 运行库。
 - 想先体验假配置：运行时加 `--demo`。每次创建新的独立临时目录，演示数据不会进入默认密钥库；额度查询返回明确的合成假数据。
-- 正常运行的存储位置：Windows 为 `%LOCALAPPDATA%\atm`，Linux 为 `$XDG_DATA_HOME/atm`（默认 `~/.local/share/atm`）。这两个目录名是改名前的历史名称，特意保留以避免迁移已有密钥库。目录内 `vault.*` 保存密钥和目标映射，`templates.*` 保存加密模板，`backups\*.atmbackup` 保存完整加密备份。程序只列举自己的备份目录。
+- vault 或模板打开失败时，配置服务停止编辑并显示恢复提示，本地技能、harness 和 Codex 查询仍可使用。
+- 正常运行的存储位置：Windows 为 `%LOCALAPPDATA%\atm`，Linux 为 `$XDG_DATA_HOME/atm`（默认 `~/.local/share/atm`）。数据目录保持稳定。此轮按空 vault 前提切换 OS 加密身份，不提供旧非空 vault 的兼容解密。目录内 `vault.*` 保存密钥和目标映射，`templates.*` 保存加密模板，`backups\*.atmbackup` 保存完整加密备份。程序只列举自己的备份目录。
+
+### 完整便携分发
+
+CI 的 Linux x64、Windows x64 和 macOS arm64 产物包含 `atm`、`atm-desktop` 和相邻的 `harness/`。整体解压后使用；升级时整体替换程序包，再运行 `atm harness sync`，最后对已安装目标执行 `atm update skills --harness <ID>`。`sync` 保留历史安装收据、harness 收据、desired 状态、本地技能投影和用户配置，并在 manager home 的 `state/repair-backups/sync-*` 保存旧引擎与状态。普通失败自动恢复；强制终止后保留命名备份供检查，不自动猜测恢复。
+
+引擎需要系统 Python 3.11+（含 venv/pip），首次执行 `atm harness bootstrap` 会安装 Python 依赖。release 构建只读取随包 `harness/` 或显式 `ATM_ENGINE_SOURCE`，不会回退到构建机源码目录。便携包未签名；Windows 仍需 WebView2，Linux 桌面仍需 WebKitGTK，会话 keyring 仅供配置加密功能使用。
+
+```bash
+cargo build --locked --release -p atm -p atm-cli
+python3 scripts/Package-Release.py --output artifacts/ai-tooling-manager-local
+python3 scripts/Test-Distribution.py artifacts/ai-tooling-manager-local.tar.gz
+# Windows 使用 .zip；验收在临时用户目录运行，不读取真实配置。
+```
 
 ## 使用步骤
 
@@ -167,7 +181,7 @@ DPAPI / 会话 keyring / Keychain 不能防御同一用户下的恶意进程、�
 
 ## 源码与重现验证
 
-- `crates/atm-core`：DPAPI / Secret Service / Keychain 安全存储、命名密钥库、规范路径与指纹、JSONC 源范围编辑、结构模板与 schema 校验、批量处理和回滚、Codex/GLM 额度探测、harness 引擎记录态快照、machine v1 生命周期接口与内嵌源物化（`harness_embed`）。
+- `crates/atm-core`：`application/` 统一配置预览/模板/额度编排，桌面仅保留 IPC、授权与窗口适配；`tool_catalog` 从引擎 registry 构建工具目录。另含DPAPI / Secret Service / Keychain 安全存储、命名密钥库、规范路径与指纹、JSONC 源范围编辑、结构模板与 schema 校验、批量处理和回滚、Codex/GLM 额度探测、harness 引擎记录态快照、machine v1 生命周期接口与内嵌源物化（`harness_embed`）。
 - `harness/`：收编的 harness 引擎源（Python，~1.3 万行 + 单测）：`.agents/harnesses/registry.json` 是分发权威；`scripts/atm_embed.py` 负责物化/同步/收编；`plugins/` 技能分发内容由内容哈希账本（`.agents/plugins/distribution-identity.json`）锁定，改动插件内容须同步重跑 `harness/scripts/update_plugin_generations.py`。注意 `harness/AGENTS.md` 是引擎必需文件（agent 工具在 `harness/` 内工作时会读到）。
 - `apps/desktop`：Tauri 2 壳（`src-tauri`，Tauri commands 与窗口构建）和 TypeScript 前端（`src`，单窗口界面、隔离演示、额度界面）。
 - `apps/desktop/tests` 与 `crates/atm-core/tests`：前端 vitest 测试与 Rust 核心/服务测试，全部用 `FAKE_` 值和每次新建的隔离目录。

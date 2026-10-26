@@ -1,6 +1,4 @@
 //! Service layer is independently testable without GUI system dependencies.
-pub mod template_store;
-pub mod usage_service;
 
 #[cfg(test)]
 mod capability_tests {

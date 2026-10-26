@@ -212,3 +212,29 @@ describe('skills confirmation interruptions', () => {
     expect(get<HTMLButtonElement>('copy-skill').disabled).toBe(false);
   });
 });
+
+
+describe('configuration failure isolation', () => {
+  it('keeps independent panels usable, clears stale state, and recovers on explicit refresh', async () => {
+    vi.mocked(api.snapshot).mockRejectedValueOnce({ code: 'STORAGE_UNAVAILABLE', message: 'FAKE_PRIVATE_ERROR' });
+    click('refresh'); await ready();
+    expect(get('configuration-status').hidden).toBe(false);
+    expect(root.textContent).not.toContain('FAKE_PRIVATE_ERROR');
+    expect(get<HTMLButtonElement>('save-key').disabled).toBe(true);
+    expect(get<HTMLButtonElement>('save-target').disabled).toBe(true);
+    expect(get('keys-list').textContent).not.toContain('合成假密钥');
+    for (const panel of ['harness', 'skills', 'usage']) {
+      const nav = root.querySelector<HTMLButtonElement>(`[data-panel="${panel}"]`)!;
+      expect(nav.disabled).toBe(false); nav.click();
+      expect(get(`panel-${panel}`).hidden).toBe(false);
+    }
+    input('codex-cli').value = '/fake/codex'; input('codex-profile').value = '/fake/profile';
+    input('codex-cli').dispatchEvent(new Event('input')); input('codex-profile').dispatchEvent(new Event('input'));
+    click('connect-codex'); await ready();
+    expect(api.configureCodexCli).toHaveBeenCalledOnce();
+    vi.mocked(api.snapshot).mockResolvedValue(fixture());
+    click('refresh'); await ready();
+    expect(get('configuration-status').hidden).toBe(true);
+    expect(get<HTMLButtonElement>('save-key').disabled).toBe(false);
+  });
+});

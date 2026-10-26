@@ -21,7 +21,7 @@ timeout 45s target/release/atm-desktop --demo > "$atm_root/app.log" 2>&1
 python3 - "$atm_root/result.json" <<'PY'
 import json,sys
 r=json.load(open(sys.argv[1]))
-assert r['passed'] and r['renderedVault'] and r['renderedQuotaUi'] and r['renderedOmhUi'] and r['renderedSkillsUi'] and r['unknownVisible'] and r['demoQueryRendered'] and r['resized']
+assert r['passed'] and r['renderedVault'] and r['renderedQuotaUi'] and r['renderedHarnessUi'] and r['renderedSkillsUi'] and r['unknownVisible'] and r['demoQueryRendered'] and r['resized']
 print('LINUX_NATIVE_GUI_SMOKE=PASS: native WebKit rendering, resize and synthetic quota, harness snapshot and skills inventory IPC')
 PY
 mkdir -p artifacts/linux-gui

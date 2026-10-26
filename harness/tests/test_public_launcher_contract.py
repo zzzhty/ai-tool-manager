@@ -83,6 +83,12 @@ class PublicLauncherContracts(unittest.TestCase):
             result[key] = (stat.st_mode, stat.st_mtime_ns, content)
         return result
 
+    def assert_snapshot(self, before, lock=None):
+        after = self.snapshot(lock)
+        changed = [path for path in sorted(before.keys() | after.keys())
+                   if before.get(path) != after.get(path)]
+        self.assertEqual(changed, [], "read-only command changed paths: " + repr(changed))
+
     def test_help_and_abbreviations_do_not_write(self):
         before = self.snapshot()
         for command in (("status", "--help"), ("repair", "--he"),
@@ -91,7 +97,7 @@ class PublicLauncherContracts(unittest.TestCase):
             with self.subTest(command=command):
                 result = self.run_cli(*command)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(self.snapshot(), before)
+                self.assert_snapshot(before)
 
     def test_invalid_arguments_never_prepare_runtime(self):
         before = self.snapshot()
@@ -101,7 +107,7 @@ class PublicLauncherContracts(unittest.TestCase):
                 result = self.run_cli(*args)
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertNotIn("UNEXPECTED MUTATING BOOTSTRAP", result.stderr)
-                self.assertEqual(self.snapshot(), before)
+                self.assert_snapshot(before)
 
     def test_help_and_snapshot_survive_source_damage_and_broken_venv(self):
         python = self.home / "venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
@@ -112,7 +118,7 @@ class PublicLauncherContracts(unittest.TestCase):
         for args in (("--help",), ("manager", "repair", "-Help"), ("status", "--json")):
             result = self.run_cli(*args)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(self.snapshot(), before)
+            self.assert_snapshot(before)
 
     def test_explicit_repair_preview_survives_damaged_metadata_or_imports(self):
         registry = self.repo / ".agents/harnesses/registry.json"
@@ -127,10 +133,10 @@ class PublicLauncherContracts(unittest.TestCase):
                 result = self.run_cli(*command, "--dry-run")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("would restore checkout", result.stdout)
-                self.assertEqual(self.snapshot(), before)
+                self.assert_snapshot(before)
                 bad = self.run_cli(*command, "--dry-run", "--nonsense")
                 self.assertEqual(bad.returncode, 2, bad.stderr)
-                self.assertEqual(self.snapshot(), before)
+                self.assert_snapshot(before)
 
     def test_healthy_json_is_pure_and_read_only(self):
         before = self.snapshot()
@@ -139,7 +145,7 @@ class PublicLauncherContracts(unittest.TestCase):
                 result = self.run_cli(command, "--json")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(result.stdout)["product"], "atm-harness")
-                self.assertEqual(self.snapshot(), before)
+                self.assert_snapshot(before)
 
     def test_global_home_abbreviations_preserve_read_only_dispatch(self):
         before = self.snapshot()
@@ -149,7 +155,7 @@ class PublicLauncherContracts(unittest.TestCase):
                     result = self.run_cli(*arguments, "status", "--json")
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(json.loads(result.stdout)["home"], str(self.home))
-                    self.assertEqual(self.snapshot(), before)
+                    self.assert_snapshot(before)
 
     def test_all_diagnostics_available_during_mutation(self):
         with manager_state.ManagerLock(self.home) as lock:
@@ -158,7 +164,7 @@ class PublicLauncherContracts(unittest.TestCase):
                 with self.subTest(command=command):
                     result = self.run_cli(command)
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(self.snapshot(lock), before)
+                    self.assert_snapshot(before, lock)
 
     def test_broken_runtime_is_explicit_and_never_repaired(self):
         python = self.home / "venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
@@ -177,7 +183,7 @@ class PublicLauncherContracts(unittest.TestCase):
                 else:
                     self.assertEqual(result.returncode, 1, result.stderr)
                     self.assertIn("atm harness -- repair", result.stderr)
-                self.assertEqual(self.snapshot(), before)
+                self.assert_snapshot(before)
 
     def test_snapshot_needs_no_tooling_dependencies(self):
         self.env.pop("PYTHONPATH", None)
@@ -188,7 +194,7 @@ class PublicLauncherContracts(unittest.TestCase):
         result = self.run_cli("version", "--j")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["observation"], "recorded-state-only")
-        self.assertEqual(self.snapshot(), before)
+        self.assert_snapshot(before)
 
     def test_harness_validation_failure_is_read_only(self):
         before = self.snapshot()
@@ -196,7 +202,7 @@ class PublicLauncherContracts(unittest.TestCase):
             result = self.run_cli(command, "copilot")
             self.assertNotEqual(result.returncode, 0)
             self.assertNotIn("UNEXPECTED MUTATING BOOTSTRAP", result.stderr)
-            self.assertEqual(self.snapshot(), before)
+            self.assert_snapshot(before)
 
     def test_missing_runtime_and_checkout_json_errors(self):
         shutil.rmtree(self.home / "venv")
@@ -213,7 +219,7 @@ class PublicLauncherContracts(unittest.TestCase):
             else:
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(result.stdout)["stateKind"], "legacy-receipt-only")
-            self.assertEqual(self.snapshot(), before)
+            self.assert_snapshot(before)
 
     def test_every_dry_run_preserves_files_and_avoids_lock(self):
         state = self.home / "state"
@@ -225,14 +231,14 @@ class PublicLauncherContracts(unittest.TestCase):
             with self.subTest(command=command):
                 result = self.run_cli(*command, "--dry-run")
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(self.snapshot(), before)
+                self.assert_snapshot(before)
                 self.assertFalse((state / "manager.lock").exists())
         with manager_state.ManagerLock(self.home) as lock:
             before = self.snapshot(lock)
             for command in commands:
                 result = self.run_cli(*command, "--dry-run")
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(self.snapshot(lock), before)
+                self.assert_snapshot(before, lock)
 
 
 if __name__ == "__main__":

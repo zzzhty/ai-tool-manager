@@ -89,7 +89,17 @@ export class DesktopApp {
   }
 
   private async loadSnapshot(): Promise<void> {
-    this.data = await this.api.snapshot(); this.data.templates ??= []; this.loaded = true;
+    try {
+      this.data = await this.api.snapshot(); this.data.templates ??= []; this.loaded = true;
+      this.get('configuration-status').hidden = true;
+    } catch (error: unknown) {
+      this.loaded = false; this.data = emptySnapshot(); this.selected.clear(); this.clearSecret();
+      this.invalidateLocal(); this.resetCandidate();
+      const status = this.get('configuration-status'); status.hidden = false;
+      status.textContent = `配置服务暂不可用：${safeError(error)} 本地技能、内置技能分发及 Codex 查询仍可使用；恢复后请刷新状态。`;
+      this.usage.setSnapshot(this.data); this.renderData();
+      throw error;
+    }
     this.selected = new Set([...this.selected].filter(id => this.data.targets.some(target => target.Id === id)));
     this.usage.setSnapshot(this.data); this.renderData();
   }
@@ -114,7 +124,7 @@ export class DesktopApp {
       if (button.dataset.panel === panel) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
     }
     for (const name of ['keys', 'targets', 'templates', 'backups', 'usage', 'harness', 'skills']) this.get(`panel-${name}`).hidden = name !== panel;
-    if (panel === 'backups') void this.refreshBackups();
+    if (panel === 'backups' && this.loaded) void this.refreshBackups();
   }
 
   private bind(): void {
@@ -169,7 +179,10 @@ export class DesktopApp {
   private refreshControls(): void {
     this.root.setAttribute('aria-busy', String(this.busy));
     for (const control of this.root.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement | HTMLTextAreaElement>('input,button,select,textarea')) control.disabled = this.busy || !this.loaded;
-    this.get<HTMLButtonElement>('refresh').disabled = this.busy;
+    // These domains do not depend on the encrypted configuration service.
+    for (const control of this.root.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>(
+      '[data-panel], #panel-skills input, #panel-skills button, #panel-skills select, #panel-harness input, #panel-harness button, #panel-harness select, #panel-usage input, #panel-usage button, #panel-usage select, #dialog-confirm, #dialog-cancel, #refresh',
+    )) control.disabled = this.busy;
     const disable = (id: string, condition: boolean) => { this.get<HTMLButtonElement>(id).disabled = this.busy || !this.loaded || condition; };
     disable('preview-selected', this.selected.size === 0);
     disable('select-all', this.data.targets.length === 0);
@@ -177,9 +190,9 @@ export class DesktopApp {
     disable('apply-preview', !this.currentPreview || !this.input('confirm-preview').checked || !this.currentPreview.files.some(file => file.changed && !file.error));
     disable('infer-template', !this.input('template-source').value);
     disable('save-template', !this.candidate || !this.input('confirm-template').checked || !this.selectedCandidatePointers().length);
-    this.usage.refreshControls(this.busy, this.loaded);
-    this.harness.refreshControls(this.busy, this.loaded);
-    this.skills.refreshControls(this.busy, this.loaded);
+    this.usage.refreshControls(this.busy, true);
+    this.harness.refreshControls(this.busy, true);
+    this.skills.refreshControls(this.busy, true);
     const selection = this.get('selection-count'); selection.textContent = `已选择 ${this.selected.size} 项`;
     this.get('select-all').textContent = this.selected.size === this.data.targets.length && this.selected.size > 0 ? '取消全选' : '全选';
   }

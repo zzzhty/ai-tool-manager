@@ -39,7 +39,7 @@ fn connect_keyring() -> Result<secret_service::blocking::SecretService<'static>>
 }
 fn key_attributes() -> std::collections::HashMap<&'static str, &'static str> {
     std::collections::HashMap::from([
-        ("application", "ai-tool-manager"),
+        ("application", "ai-tooling-manager"),
         ("purpose", "linux-aead-master-v1"),
     ])
 }

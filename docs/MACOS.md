@@ -6,7 +6,7 @@ macOS 使用 Darwin 文件系统接口和 Security.framework，不复用 Linux �
 ## 存储与兼容边界
 
 数据目录使用 `$HOME/Library/Application Support/atm`；macOS 主密钥的 service/account 固定为
-`com.ai-tool-manager.desktop.storage.v1` / `macos-aes-gcm-master-v1`。
+`com.ai-tooling-manager.desktop.storage.v1` / `macos-aes-gcm-master-v1`。
 `vault.atmvault`、`templates.atmvault` 和加密备份使用 AES-256-GCM，认证头为
 `LKM-MACOS-V1\0`。Linux/Windows 既有身份与格式不变；不承诺跨电脑或跨平台解密。
 

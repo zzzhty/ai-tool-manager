@@ -123,6 +123,7 @@ class HarnessSpec:
     instructions: InstructionsSpec
     extras: tuple[str, ...]
     aliases: tuple[str, ...] = ()
+    local_skills_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -605,7 +606,7 @@ def _harness(harness_id: str, value: object) -> HarnessSpec:
             "instructions",
             "extras",
         },
-        optional={"aliases"},
+        optional={"aliases", "localSkillsPath"},
     )
     aliases_value = payload.get("aliases", [])
     if not isinstance(aliases_value, list):
@@ -650,6 +651,8 @@ def _harness(harness_id: str, value: object) -> HarnessSpec:
         instructions=instructions,
         extras=extras,
         aliases=tuple(aliases_value),
+        local_skills_path=(_relative_path(payload["localSkillsPath"], label=f"{label}.localSkillsPath")
+                           if "localSkillsPath" in payload else skills.relative_path),
     )
 
 

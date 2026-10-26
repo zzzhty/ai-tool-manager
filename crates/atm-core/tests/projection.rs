@@ -95,7 +95,7 @@ fn explicit_roots_ignore_inherited_overrides() {
             .inventory()
             .unwrap();
         for (id, key) in [
-            ("copilot", "COPILOT_HOME"),
+            ("copilot-cli", "COPILOT_HOME"),
             ("claude-code", "CLAUDE_CONFIG_DIR"),
         ] {
             assert_eq!(
@@ -146,7 +146,11 @@ fn explicit_roots_ignore_inherited_overrides() {
         use std::os::unix::process::CommandExt;
         unsafe {
             command.pre_exec(|| {
-                if libc::close_range(3, libc::c_uint::MAX, 0) != 0 {
+                #[cfg(target_os = "linux")]
+                if libc::close_range(3, libc::c_uint::MAX, 0) == 0 {
+                    return Ok(());
+                }
+                {
                     for fd in 3..1024 {
                         libc::close(fd);
                     }
@@ -964,4 +968,36 @@ fn publishing_and_projecting_cannot_enter_an_aliased_shared_agent_root() {
         b"TEST_ONLY"
     );
     assert_eq!(f.registry.list().unwrap()[0].projections.len(), 1);
+}
+
+#[test]
+fn legacy_copilot_receipts_protect_alias_and_shared_vscode_slots() {
+    let f = fixture();
+    let source = write_skill(f.sources.path(), "src");
+    f.registry
+        .publish(&source, "legacy", &["copilot".into()])
+        .unwrap();
+    let receipt_before = fs::read(f.registry_root.path().join("private/registry.json")).unwrap();
+    for root in ["copilot-cli", "vscode"] {
+        assert!(f.registry.project("legacy", root).is_err());
+        assert!(service(&f).install(&source, root, "legacy").is_err());
+        assert!(service(&f).uninstall(root, "legacy").is_err());
+    }
+    assert_eq!(
+        fs::read(f.registry_root.path().join("private/registry.json")).unwrap(),
+        receipt_before
+    );
+    assert!(f
+        .registry
+        .publish(
+            &source,
+            "duplicate",
+            &["copilot-cli".into(), "vscode".into()]
+        )
+        .is_err());
+    assert_eq!(f.registry.list().unwrap().len(), 1);
+    f.registry
+        .unproject("legacy", "copilot-cli", false)
+        .unwrap();
+    assert!(f.registry.list().unwrap()[0].projections.is_empty());
 }

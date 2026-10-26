@@ -296,6 +296,7 @@
       ],
       "properties": {
         "displayName": {"type": "string", "minLength": 1},
+        "localSkillsPath": {"$ref": "#/$defs/relativePath"},
         "aliases": {
           "type": "array",
           "uniqueItems": true,

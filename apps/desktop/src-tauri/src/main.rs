@@ -1,24 +1,26 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-use atm::{template_store, usage_service::UsageService};
+use atm_core::application::{
+    configuration::{
+        CandidateView, ConfigurationSession, ConfigurationSnapshot as DesktopSnapshot, TargetView,
+    },
+    usage_service::UsageService,
+};
 use atm_core::{
-    batch::{BackupView, BatchUpdater, FileResult, Preview, PreviewView},
+    batch::{BackupView, FileResult, PreviewView},
     harness::{self, HarnessStatusSnapshot},
-    jsonc,
     skills::{SkillsInventoryView, SkillsService},
     storage,
-    templates::{self, ApplicationIdentity, TemplateCandidate},
     usage::{
         self,
         glm::{self, PlanKind},
         Region, Snapshot as UsageSnapshot,
     },
-    windows, Error, KeyView, TargetMapping, Vault,
+    Error, TargetMapping,
 };
 use serde::{Deserialize, Serialize};
 #[cfg(all(any(target_os = "linux", target_os = "macos"), feature = "smoke-tests"))]
 use std::path::PathBuf;
 use std::{
-    collections::BTreeSet,
     path::Path,
     sync::{Arc, Mutex},
 };
@@ -26,25 +28,13 @@ use std::{
 use tauri::Manager;
 use tauri::{State, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
-use template_store::{Assignment, TemplateStore};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
 struct Service {
-    vault: Vault,
-    updater: BatchUpdater,
-    preview: Option<Preview>,
-    templates: TemplateStore,
-    candidate: Option<TemplateCandidate>,
+    configuration: ConfigurationSession,
     usage: Arc<Mutex<UsageService>>,
     demo: bool,
-}
-impl Service {
-    fn invalidate(&mut self) {
-        if let Some(mut plan) = self.preview.take() {
-            plan.cancel();
-        }
-    }
 }
 type AppState<'a> = State<'a, Mutex<Service>>;
 fn authorized(window: &WebviewWindow) -> Result<(), Error> {
@@ -63,85 +53,10 @@ fn lock<'a>(state: &'a AppState<'_>) -> Result<std::sync::MutexGuard<'a, Service
         .lock()
         .map_err(|_| Error::new("STATE_BUSY", "管理器状态不可用，请重新启动。"))
 }
-#[derive(Clone, Serialize, Deserialize)]
-struct TargetView {
-    #[serde(flatten)]
-    target: TargetMapping,
-    #[serde(rename = "TemplateId", default)]
-    template_id: Option<Uuid>,
-}
-#[derive(Serialize)]
-struct TemplateField {
-    pointer: String,
-    label: String,
-    kind: &'static str,
-}
-#[derive(Serialize)]
-struct TemplateView {
-    id: Uuid,
-    name: String,
-    fields: Vec<TemplateField>,
-}
-#[derive(Serialize)]
-struct DesktopSnapshot {
-    keys: Vec<KeyView>,
-    targets: Vec<TargetView>,
-    templates: Vec<TemplateView>,
-    #[serde(rename = "storageKind")]
-    storage_kind: &'static str,
-    demo: bool,
-}
-#[derive(Serialize)]
-struct CandidateView {
-    id: Uuid,
-    name: String,
-    fields: Vec<TemplateField>,
-    schema: serde_json::Value,
-    warnings: Vec<String>,
-}
-fn fields(template: &templates::Template) -> Vec<TemplateField> {
-    template
-        .bindings
-        .iter()
-        .map(|binding| TemplateField {
-            pointer: binding.pointer.clone(),
-            label: binding.name.clone(),
-            kind: "string",
-        })
-        .collect()
-}
 #[tauri::command]
 fn snapshot(window: WebviewWindow, state: AppState<'_>) -> Result<DesktopSnapshot, Error> {
     authorized(&window)?;
-    let service = lock(&state)?;
-    let snap = service.vault.snapshot();
-    Ok(DesktopSnapshot {
-        storage_kind: storage::kind(),
-        demo: service.demo,
-        keys: snap.keys,
-        targets: snap
-            .targets
-            .into_iter()
-            .map(|target| TargetView {
-                template_id: service
-                    .templates
-                    .assignments
-                    .get(&target.id)
-                    .and_then(|a| a.template_id),
-                target,
-            })
-            .collect(),
-        templates: service
-            .templates
-            .templates
-            .values()
-            .map(|t| TemplateView {
-                id: t.id,
-                name: t.name.clone(),
-                fields: fields(t),
-            })
-            .collect(),
-    })
+    lock(&state)?.configuration.get()?.snapshot()
 }
 #[tauri::command]
 fn save_key(
@@ -151,82 +66,31 @@ fn save_key(
     name: String,
     secret: String,
 ) -> Result<Uuid, Error> {
-    // Wrap the caller-owned plaintext before any fallible operation.
     let secret = Zeroizing::new(secret);
     authorized(&window)?;
-    let mut service = lock(&state)?;
-    service.invalidate();
-    service.vault.save_key(id, name, secret)
+    lock(&state)?
+        .configuration
+        .get()?
+        .save_key(id, name, secret)
 }
 #[tauri::command]
 fn delete_key(window: WebviewWindow, state: AppState<'_>, id: Uuid) -> Result<(), Error> {
     authorized(&window)?;
-    let mut service = lock(&state)?;
-    service.invalidate();
-    service.vault.delete_key(id)
+    lock(&state)?.configuration.get()?.delete_key(id)
 }
 #[tauri::command]
 fn save_target(
     window: WebviewWindow,
     state: AppState<'_>,
-    mut target: TargetView,
+    target: TargetView,
 ) -> Result<Uuid, Error> {
     authorized(&window)?;
-    let mut service = lock(&state)?;
-    service.invalidate();
-    if target.target.id.is_nil() {
-        target.target.id = Uuid::new_v4();
-    }
-    target.target.file_path = windows::canonical(&target.target.file_path)?;
-    target.target.pointer = jsonc::normalize(&target.target.pointer)?;
-    if let Some(id) = target.template_id {
-        let t = service
-            .templates
-            .templates
-            .get(&id)
-            .ok_or(Error::new("TEMPLATE_MISSING", "请选择已保存模板。"))?;
-        templates::validate_template(t)?;
-        if !t.write_allowlist.contains(&target.target.pointer) {
-            return Err(Error::new(
-                "TEMPLATE_ALLOWLIST",
-                "所选字段不在模板写入白名单内。",
-            ));
-        }
-    }
-    // Metadata is durable before exposing the mapping. An interrupted pair either
-    // retains an explicit user-selected binding or fails closed on mapping drift.
-    let old = service.templates.clone();
-    let mut next = old.clone();
-    next.assignments.insert(
-        target.target.id,
-        Assignment {
-            template_id: target.template_id,
-            mapping: target.target.clone(),
-        },
-    );
-    next.save(service.vault.directory())?;
-    service.templates = next;
-    match service.vault.save_target(target.target) {
-        Ok(id) => Ok(id),
-        Err(error) => {
-            if old.save(service.vault.directory()).is_ok() {
-                service.templates = old;
-            }
-            Err(error)
-        }
-    }
+    lock(&state)?.configuration.get()?.save_target(target)
 }
 #[tauri::command]
 fn delete_target(window: WebviewWindow, state: AppState<'_>, id: Uuid) -> Result<(), Error> {
     authorized(&window)?;
-    let mut service = lock(&state)?;
-    service.invalidate();
-    service.vault.delete_target(id)?;
-    let mut next = service.templates.clone();
-    next.assignments.remove(&id);
-    next.save(service.vault.directory())?;
-    service.templates = next;
-    Ok(())
+    lock(&state)?.configuration.get()?.delete_target(id)
 }
 #[tauri::command]
 fn preview(
@@ -235,79 +99,7 @@ fn preview(
     selected: Vec<Uuid>,
 ) -> Result<PreviewView, Error> {
     authorized(&window)?;
-    let mut service = lock(&state)?;
-    service.invalidate();
-    let snapshot = service.vault.snapshot();
-    let mut per_file: Vec<(String, BTreeSet<Uuid>)> = Vec::new();
-    let mut drift: Vec<(String, Error)> = Vec::new();
-    // Every configured schema on a selected file remains active even when only
-    // a different mapping on that file is selected. No schema bypass by checkbox.
-    for target in &snapshot.targets {
-        match service.templates.for_mapping(target) {
-            Ok(Some(template)) => {
-                if let Some((_, ids)) = per_file
-                    .iter_mut()
-                    .find(|(path, _)| windows::same_path(path, &target.file_path))
-                {
-                    ids.insert(template.id);
-                } else {
-                    per_file.push((target.file_path.clone(), BTreeSet::from([template.id])));
-                }
-            }
-            Err(error) => drift.push((target.file_path.clone(), error)),
-            Ok(None) => {}
-        }
-    }
-    // Orphaned template bindings keep guarding their file; only an explicit
-    // mapping/template removal may discard this file's prior guard.
-    for assignment in service.templates.assignments.values() {
-        if let Some(id) = assignment.template_id {
-            if let Some((_, ids)) = per_file
-                .iter_mut()
-                .find(|(path, _)| windows::same_path(path, &assignment.mapping.file_path))
-            {
-                ids.insert(id);
-            } else {
-                per_file.push((assignment.mapping.file_path.clone(), BTreeSet::from([id])));
-            }
-        }
-    }
-    let plan = service.updater.preview_with_validator(
-        &service.vault,
-        &selected,
-        |path, original, requests| {
-            if let Some((_, error)) = drift
-                .iter()
-                .find(|(known, _)| windows::same_path(known, path))
-            {
-                return Err(*error);
-            }
-            let Some((_, ids)) = per_file
-                .iter()
-                .find(|(known, _)| windows::same_path(known, path))
-            else {
-                return jsonc::edit(original, requests);
-            };
-            if ids.len() != 1 {
-                return Err(Error::new(
-                    "TEMPLATE_AMBIGUOUS",
-                    "同一文件绑定多个不同模板，请统一后重试。",
-                ));
-            }
-            let id = ids
-                .first()
-                .ok_or(Error::new("TEMPLATE_MISSING", "模板不可用。"))?;
-            let template = service
-                .templates
-                .templates
-                .get(id)
-                .ok_or(Error::new("TEMPLATE_MISSING", "模板不可用。"))?;
-            templates::prepare_patch(template, original, requests)
-        },
-    );
-    let view = plan.view();
-    service.preview = Some(plan);
-    Ok(view)
+    lock(&state)?.configuration.get()?.preview(selected)
 }
 #[tauri::command]
 fn apply_preview(
@@ -317,32 +109,21 @@ fn apply_preview(
     confirmed: bool,
 ) -> Result<Vec<FileResult>, Error> {
     authorized(&window)?;
-    let mut service = lock(&state)?;
-    if !confirmed {
-        return Err(Error::new(
-            "CONFIRM_REQUIRED",
-            "须确认遮罩预览后才允许应用。",
-        ));
-    }
-    if !service.preview.as_ref().is_some_and(|plan| plan.id == id) {
-        return Err(Error::new("PREVIEW_EXPIRED", "预览已失效，请重新预览。"));
-    }
-    let mut plan = service
-        .preview
-        .take()
-        .ok_or(Error::new("PREVIEW_EXPIRED", "预览已失效，请重新预览。"))?;
-    service.updater.apply(&mut plan, id, true)
+    lock(&state)?
+        .configuration
+        .get()?
+        .apply_preview(id, confirmed)
 }
 #[tauri::command]
 fn cancel_preview(window: WebviewWindow, state: AppState<'_>) -> Result<(), Error> {
     authorized(&window)?;
-    lock(&state)?.invalidate();
+    lock(&state)?.configuration.invalidate();
     Ok(())
 }
 #[tauri::command]
 fn list_backups(window: WebviewWindow, state: AppState<'_>) -> Result<Vec<BackupView>, Error> {
     authorized(&window)?;
-    lock(&state)?.updater.backups()
+    lock(&state)?.configuration.get()?.list_backups()
 }
 #[tauri::command]
 fn preview_rollback(
@@ -351,12 +132,10 @@ fn preview_rollback(
     backup_path: String,
 ) -> Result<PreviewView, Error> {
     authorized(&window)?;
-    let mut service = lock(&state)?;
-    service.invalidate();
-    let plan = service.updater.preview_rollback(&backup_path)?;
-    let view = plan.view();
-    service.preview = Some(plan);
-    Ok(view)
+    lock(&state)?
+        .configuration
+        .get()?
+        .preview_rollback(backup_path)
 }
 #[tauri::command]
 fn infer_template(
@@ -365,32 +144,7 @@ fn infer_template(
     file_path: String,
 ) -> Result<CandidateView, Error> {
     authorized(&window)?;
-    let mut service = lock(&state)?;
-    service.candidate = None;
-    let original = windows::read_snapshot(&file_path)?;
-    let filename = Path::new(&original.path)
-        .file_name()
-        .and_then(|v| v.to_str())
-        .unwrap_or("config.json")
-        .to_owned();
-    let candidate = templates::infer_candidate(
-        &original.bytes,
-        ApplicationIdentity {
-            id: "user-selected".into(),
-            display_name: "用户选择的配置".into(),
-            config_file_names: vec![filename],
-        },
-        "我的配置模板".into(),
-    )?;
-    let view = CandidateView {
-        id: candidate.template.id,
-        name: candidate.template.name.clone(),
-        fields: fields(&candidate.template),
-        schema: candidate.template.schema.clone(),
-        warnings: candidate.warnings.clone(),
-    };
-    service.candidate = Some(candidate);
-    Ok(view)
+    lock(&state)?.configuration.get()?.infer_template(file_path)
 }
 #[tauri::command]
 fn save_template(
@@ -402,97 +156,15 @@ fn save_template(
     schema: Option<String>,
 ) -> Result<Uuid, Error> {
     authorized(&window)?;
-    let mut service = lock(&state)?;
-    if selected_pointers.is_empty() || selected_pointers.len() > 1024 {
-        return Err(Error::new(
-            "TEMPLATE_ALLOWLIST",
-            "请选择 1–1024 个精确字段。",
-        ));
-    }
-    let candidate = service
-        .candidate
-        .as_ref()
-        .ok_or(Error::new("CANDIDATE_EXPIRED", "候选已失效，请重新提取。"))?;
-    if candidate.template.id != candidate_id {
-        return Err(Error::new("CANDIDATE_EXPIRED", "候选已失效，请重新提取。"));
-    }
-    let mut candidate = candidate.clone();
-    for pointer in &selected_pointers {
-        if !candidate
-            .template
-            .bindings
-            .iter()
-            .any(|b| b.pointer == *pointer)
-        {
-            return Err(Error::new(
-                "TEMPLATE_ALLOWLIST",
-                "只能选择候选中的现有字符串字段。",
-            ));
-        }
-    }
-    candidate.template.name = name;
-    candidate.template.write_allowlist = selected_pointers;
-    candidate
-        .template
-        .bindings
-        .retain(|b| candidate.template.write_allowlist.contains(&b.pointer));
-    if let Some(schema) = schema {
-        if schema.len() > 128 * 1024 {
-            return Err(Error::new("SCHEMA_LIMIT", "Schema 太大。"));
-        }
-        let edited = jsonc::parse_value(schema.as_bytes()).map_err(|_| {
-            Error::new(
-                "SCHEMA_INVALID",
-                "Schema 必须为无重复字段的有效 JSON 对象。",
-            )
-        })?;
-        if edited != candidate.template.schema {
-            candidate.template.source.kind = templates::SchemaSourceKind::UserAuthored;
-            candidate.template.source.version = "user-reviewed-v1".into();
-        }
-        candidate.template.schema = edited;
-    }
-    let template = templates::confirm_candidate(candidate, true)?;
-    let id = template.id;
-    let mut next = service.templates.clone();
-    next.templates.insert(id, template);
-    next.save(service.vault.directory())?;
-    service.templates = next;
-    service.candidate = None;
-    service.invalidate();
-    Ok(id)
+    lock(&state)?
+        .configuration
+        .get()?
+        .save_template(candidate_id, name, selected_pointers, schema)
 }
 #[tauri::command]
 fn delete_template(window: WebviewWindow, state: AppState<'_>, id: Uuid) -> Result<(), Error> {
     authorized(&window)?;
-    let mut service = lock(&state)?;
-    let active_ids: BTreeSet<_> = service
-        .vault
-        .snapshot()
-        .targets
-        .into_iter()
-        .map(|t| t.id)
-        .collect();
-    if service
-        .templates
-        .assignments
-        .iter()
-        .any(|(target_id, a)| active_ids.contains(target_id) && a.template_id == Some(id))
-    {
-        return Err(Error::new(
-            "TEMPLATE_IN_USE",
-            "请先取消使用此模板的映射绑定。",
-        ));
-    }
-    let mut next = service.templates.clone();
-    next.assignments.retain(|_, a| a.template_id != Some(id));
-    if next.templates.remove(&id).is_none() {
-        return Err(Error::new("TEMPLATE_MISSING", "模板不存在。"));
-    }
-    next.save(service.vault.directory())?;
-    service.templates = next;
-    service.invalidate();
-    Ok(())
+    lock(&state)?.configuration.get()?.delete_template(id)
 }
 #[tauri::command]
 async fn initialize_storage(
@@ -509,7 +181,10 @@ async fn initialize_storage(
     }
     let (demo, directory) = {
         let service = lock(&state)?;
-        (service.demo, service.vault.directory().to_path_buf())
+        (
+            service.demo,
+            service.configuration.directory()?.to_path_buf(),
+        )
     };
     if demo {
         return Ok(());
@@ -600,18 +275,10 @@ async fn query_glm_usage(
         return Err(Error::new("USAGE_REGION", "请选择 GLM 地区。"));
     }
     let (manager, demo, key, revision) = {
-        let service = lock(&state)?;
+        let mut service = lock(&state)?;
         let (key, revision) = if plan_kind == PlanKind::Personal && !service.demo {
             let id = key_id.ok_or(Error::new("KEY_MISSING", "请选择命名密钥。"))?;
-            let key = service.vault.usage_credential(id)?;
-            let view = service
-                .vault
-                .snapshot()
-                .keys
-                .into_iter()
-                .find(|k| k.id == id)
-                .ok_or(Error::new("KEY_MISSING", "密钥已不存在。"))?;
-            (key, format!("{}:{}", id, view.updated_utc))
+            service.configuration.get()?.usage_credential(id)?
         } else {
             (Zeroizing::new(String::new()), "no-credential".into())
         };
@@ -747,79 +414,33 @@ async fn skills_inventory(
             link_target: None,
         };
         return Ok(SkillsInventoryView {
-            roots: vec![
-                SkillRootView {
-                    id: "claude-code",
-                    label: "Claude Code",
-                    path: "TEST_ONLY/home/.claude/skills".into(),
-                    exists: true,
-                    entries: vec![
-                        SkillEntryView {
-                            name: "demo-skill".into(),
-                            kind: "directory",
-                            display_name: Some("演示技能".into()),
-                            description: Some("TEST_ONLY 演示条目".into()),
-                            link_target: None,
-                        },
-                        SkillEntryView {
-                            name: "managed".into(),
-                            kind: "engine_managed",
-                            display_name: None,
-                            description: None,
-                            link_target: Some("TEST_ONLY/home/.atm/repo/plugins/demo".into()),
-                        },
-                    ],
-                },
-                SkillRootView {
-                    id: "codex",
-                    label: "Codex",
-                    path: "TEST_ONLY/home/.codex/skills".into(),
-                    exists: true,
-                    entries: vec![demo_entry("review-agent", "directory")],
-                },
-                SkillRootView {
-                    id: "copilot",
-                    label: "Copilot CLI / VS Code",
-                    path: "TEST_ONLY/home/.copilot/skills".into(),
-                    exists: false,
-                    entries: vec![],
-                },
-                SkillRootView {
-                    id: "zcode",
-                    label: "Z Code",
-                    path: "TEST_ONLY/home/.zcode/skills".into(),
-                    exists: false,
-                    entries: vec![],
-                },
-                SkillRootView {
-                    id: "gemini-cli",
-                    label: "Gemini CLI",
-                    path: "TEST_ONLY/home/.gemini/skills".into(),
-                    exists: false,
-                    entries: vec![],
-                },
-                SkillRootView {
-                    id: "opencode",
-                    label: "OpenCode",
-                    path: "TEST_ONLY/home/.config/opencode/skills".into(),
-                    exists: false,
-                    entries: vec![],
-                },
-                SkillRootView {
-                    id: "openclaw",
-                    label: "OpenClaw",
-                    path: "TEST_ONLY/home/.openclaw/skills".into(),
-                    exists: false,
-                    entries: vec![],
-                },
-                SkillRootView {
-                    id: "pi-agent",
-                    label: "Pi Agent",
-                    path: "TEST_ONLY/home/.pi/agent/skills".into(),
-                    exists: false,
-                    entries: vec![],
-                },
-            ],
+            roots: atm_core::tool_catalog::TOOLS
+                .iter()
+                .map(|tool| {
+                    let demo_home = std::env::temp_dir().join("TEST_ONLY/home");
+                    let root = tool.resolve(&demo_home, false)?;
+                    let entries = match tool.id {
+                        "claude-code" => vec![
+                            demo_entry("demo-skill", "directory"),
+                            demo_entry("managed", "engine_managed"),
+                        ],
+                        "codex" => vec![demo_entry("review-agent", "directory")],
+                        _ => vec![],
+                    };
+                    Ok(SkillRootView {
+                        id: tool.id,
+                        label: tool.label,
+                        path: format!(
+                            "TEST_ONLY/home/{}",
+                            root.strip_prefix(&demo_home)
+                                .expect("synthetic root")
+                                .display()
+                        ),
+                        exists: !entries.is_empty(),
+                        entries,
+                    })
+                })
+                .collect::<Result<Vec<_>, Error>>()?,
             trash: vec![SkillTrashView {
                 id: "zcode/old-demo".into(),
                 root_id: "zcode".into(),
@@ -996,7 +617,7 @@ fn report_linux_smoke(
                 .ok_or(Error::new("SMOKE_SCOPE", "缺少隔离测试目录。"))?,
         );
         storage::ensure_directory(&root)?;
-        let directory = lock(&state)?.vault.directory().to_path_buf();
+        let directory = lock(&state)?.configuration.directory()?.to_path_buf();
         if !directory.starts_with(root.join("tmp")) {
             return Err(Error::new("SMOKE_SCOPE", "测试存储不在隔离目录。"));
         }
@@ -1040,11 +661,12 @@ fn report_linux_smoke(
             eprintln!("TEST_ONLY_NATIVE_SMOKE_REJECTED flags={evidence:?} aclDenied={acl_denied}");
             return Err(Error::new("SMOKE_SCOPE", "原生 GUI 测试条件不满足。"));
         }
-        let service = lock(&state)?;
-        let directory = service.vault.directory();
+        let mut service = lock(&state)?;
+        let configuration = service.configuration.get()?;
+        let directory = configuration.directory();
         if !directory.starts_with(root.join("tmp"))
             || std::fs::read(directory.join("synthetic.jsonc"))?.as_slice() != DEMO_CONFIG
-            || service.updater.backups()?.len() != 2
+            || configuration.list_backups()?.len() != 2
         {
             return Err(Error::new("SMOKE_SCOPE", "假配置回滚或备份验证失败。"));
         }
@@ -1103,46 +725,44 @@ fn run() -> Result<(), Error> {
         }
     }
     let directory = if demo {
-        std::env::temp_dir().join(format!("atm-demo-{}", Uuid::new_v4()))
+        Ok(std::env::temp_dir().join(format!("atm-demo-{}", Uuid::new_v4())))
     } else {
-        storage::data_directory()?
+        storage::data_directory()
     };
     let protector = if demo {
         storage::demo_protector()?
     } else {
         storage::system()
     };
-    let mut vault = Vault::open_with_protector(&directory, protector.clone())?;
+    let mut configuration = ConfigurationSession::new(directory, protector, demo);
     if demo {
-        let file = directory.join("synthetic.jsonc");
+        let service = configuration.get()?;
+        let file = service.directory().join("synthetic.jsonc");
         std::fs::write(&file, DEMO_CONFIG)?;
-        let key = vault.save_key(
+        let key = service.save_key(
             None,
             "演示密钥（假数据）".into(),
             Zeroizing::new("FAKE_DEMO_NEW".into()),
         )?;
         for (pointer, bearer) in [("/apiKey", false), ("/authorization", true)] {
-            vault.save_target(TargetMapping {
-                id: Uuid::nil(),
-                label: format!("演示 {pointer}"),
-                file_path: file.to_string_lossy().into_owned(),
-                pointer: pointer.into(),
-                key_id: key,
-                bearer_prefix: bearer,
-                replace_variables: false,
+            service.save_target(TargetView {
+                template_id: None,
+                target: TargetMapping {
+                    id: Uuid::nil(),
+                    label: format!("演示 {pointer}"),
+                    file_path: file.to_string_lossy().into_owned(),
+                    pointer: pointer.into(),
+                    key_id: key,
+                    bearer_prefix: bearer,
+                    replace_variables: false,
+                },
             })?;
         }
     }
-    let templates = TemplateStore::load_with_protector(&directory, protector.clone())?;
-    let updater = BatchUpdater::with_protector(vault.backup_directory(), protector);
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(Service {
-            vault,
-            updater,
-            preview: None,
-            templates,
-            candidate: None,
+            configuration,
             usage: Arc::new(Mutex::new(UsageService::default())),
             demo,
         }))
@@ -1287,7 +907,7 @@ fn main() {
             .setup(move |app| {
                 app.dialog()
                     .message(error.message)
-                    .title("AI Tool Manager无法启动")
+                    .title("AI Tooling Manager无法启动")
                     .blocking_show();
                 app.handle().exit(1);
                 Ok(())

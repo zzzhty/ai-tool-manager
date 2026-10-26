@@ -2,7 +2,7 @@
 export const layout = `
 <a class="skip-link" href="#main">跳到工作区</a>
 <header class="app-header">
-  <div class="identity"><span class="app-mark" aria-hidden="true">⌘</span><div><h1>AI Tool Manager</h1><p>ATM · LOCAL AI TOOL MANAGER <span class="version">RUST · 0.2</span></p></div></div>
+  <div class="identity"><span class="app-mark" aria-hidden="true">⌘</span><div><h1>AI Tooling Manager</h1><p>ATM · LOCAL AI TOOL MANAGER <span class="version">RUST · 0.2</span></p></div></div>
   <span class="local-badge"><span aria-hidden="true">●</span> 本机加密 · 按需查询</span>
 </header>
 <div class="app-shell">
@@ -20,6 +20,7 @@ export const layout = `
   </aside>
   <main id="main" tabindex="-1">
     <div id="notice" class="notice" role="status" aria-live="polite" aria-atomic="true">正在连接本地密钥库…</div>
+    <p id="configuration-status" class="info-block warning" role="status" hidden></p>
     <section id="panel-keys" class="panel" aria-labelledby="keys-heading">
       <div class="section-heading"><div><p class="eyebrow">01 / VAULT</p><h2 id="keys-heading">命名密钥库</h2><p>用用途命名。已保存的密钥始终完全遮罩。</p></div><button id="refresh" class="button secondary" type="button">刷新状态</button></div>
       <div class="two-columns">

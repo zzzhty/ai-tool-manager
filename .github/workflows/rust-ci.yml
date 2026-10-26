@@ -123,6 +123,9 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
@@ -160,7 +163,7 @@ jobs:
           dbus-run-session -- bash scripts/Test-LinuxKeyring.sh 2>&1 | tee artifacts/linux-ci/keyring.log
           python3 -c 'from pathlib import Path; s=Path("artifacts/linux-ci/keyring.log").read_text(); assert "SECRET_SERVICE_LIFECYCLE_PHASE=PASS (create)" in s and "SECRET_SERVICE_LIFECYCLE_PHASE=PASS (reopen)" in s and "SECRET_SERVICE_LIFECYCLE=PASS:" in s'
       - name: Build native Linux Tauri executable
-        run: cargo build --locked --release -p atm --features smoke-tests
+        run: cargo build --locked --release -p atm -p atm-cli --features smoke-tests
       - name: Native Linux fake-data GUI smoke
         run: xvfb-run -a dbus-run-session -- bash scripts/Test-LinuxGui.sh
       - name: Preserve Linux native evidence
@@ -171,11 +174,15 @@ jobs:
           path: |
             artifacts/linux-ci
             artifacts/linux-gui
+      - name: Package and test the extracted Linux distribution
+        run: |
+          python scripts/Package-Release.py --output artifacts/ai-tooling-manager-linux-x64
+          python scripts/Test-Distribution.py artifacts/ai-tooling-manager-linux-x64.tar.gz
       - name: Preserve Linux preview executable
         uses: actions/upload-artifact@v4
         with:
-          name: atm-linux-x64
-          path: target/release/atm-desktop
+          name: ai-tooling-manager-linux-x64
+          path: artifacts/ai-tooling-manager-linux-x64.tar.gz
           if-no-files-found: error
       - uses: actions/cache/save@v4
         if: always()
@@ -197,6 +204,9 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
@@ -261,12 +271,20 @@ jobs:
       - name: Isolated Windows Tauri GUI smoke
         if: always() && !cancelled() && steps.tauri.outcome == 'success'
         run: ./scripts/Test-TauriGui.ps1
+      - name: Package and test the extracted Windows distribution
+        run: |
+          cargo build --locked --release -p atm-cli
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/Package-Release.py --output artifacts/ai-tooling-manager-windows-x64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/Test-Distribution.py artifacts/ai-tooling-manager-windows-x64.zip
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Preserve Windows executable
         if: always() && steps.tauri.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: atm-windows-x64
-          path: target/release/atm-desktop.exe
+          name: ai-tooling-manager-windows-x64
+          path: artifacts/ai-tooling-manager-windows-x64.zip
           if-no-files-found: error
       - name: Preserve GUI evidence
         if: always()
@@ -301,11 +319,15 @@ jobs:
       ATM_SKILLS_LIVE: '0'
       ATM_ENGINE_LIVE: '0'
       PYTHONNOUSERSITE: '1'
+      ATM_ENGINE_PYTHON_STRICT: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
@@ -328,10 +350,21 @@ jobs:
           rustup component add rustfmt clippy
           npm ci --ignore-scripts
           cargo fetch --locked --target aarch64-apple-darwin
+          python -m pip install -r harness/requirements.txt
       - name: Native isolated validation without signing or installation
         run: |
           export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
           bash scripts/Verify-MacOS.sh
+      - name: Package and test the extracted macOS distribution
+        run: |
+          cargo build --locked --offline --release -p atm-cli
+          python scripts/Package-Release.py --output artifacts/ai-tooling-manager-macos-arm64
+          python scripts/Test-Distribution.py artifacts/ai-tooling-manager-macos-arm64.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ai-tooling-manager-macos-arm64
+          path: artifacts/ai-tooling-manager-macos-arm64.tar.gz
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()
         with:

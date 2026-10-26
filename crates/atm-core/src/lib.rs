@@ -1,4 +1,5 @@
 //! Local-key core. Public views never contain saved keys or configuration bytes.
+pub mod application;
 pub mod batch;
 mod error;
 pub mod harness;
@@ -16,6 +17,7 @@ pub mod projection;
 pub mod skills;
 pub mod storage;
 pub mod templates;
+pub mod tool_catalog;
 pub mod usage;
 pub mod vault;
 pub mod windows;

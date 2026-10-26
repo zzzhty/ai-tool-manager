@@ -115,7 +115,9 @@ fn inventory_classifies_links_directories_and_excludes_dot_entries() {
 fn missing_roots_report_exists_false_with_declared_paths() {
     let f = fixture();
     let inventory = f.service.inventory().unwrap();
-    assert_eq!(inventory.roots.len(), 8);
+    assert_eq!(inventory.roots.len(), 10);
+    assert!(inventory.roots.iter().any(|root| root.id == "vscode"));
+    assert!(inventory.roots.iter().any(|root| root.id == "oh-my-pi"));
     let zcode = inventory.roots.iter().find(|r| r.id == "zcode").unwrap();
     assert!(!zcode.exists);
     assert!(zcode.entries.is_empty());
@@ -344,9 +346,9 @@ fn copy_to_clones_between_roots_and_refuses_collisions() {
     f.service.install(&source, "zcode", "shared").unwrap();
     f.service.copy_to("zcode", "shared", "copilot").unwrap();
     let inventory = f.service.inventory().unwrap();
-    assert_eq!(find(&inventory, "copilot", "shared").kind, "directory");
+    assert_eq!(find(&inventory, "copilot-cli", "shared").kind, "directory");
     assert_eq!(
-        find(&inventory, "copilot", "shared")
+        find(&inventory, "copilot-cli", "shared")
             .display_name
             .as_deref(),
         Some("test-skill")
@@ -647,7 +649,10 @@ fn shared_agent_skills_are_hidden_and_unchanged_through_root_and_ancestor_links(
         f.service.install(&source, "copilot", "ordinary").unwrap();
         let inventory = f.service.inventory().unwrap();
         assert!(inventory.roots.iter().all(|r| r.id != "zcode"));
-        assert_eq!(find(&inventory, "copilot", "ordinary").kind, "directory");
+        assert_eq!(
+            find(&inventory, "copilot-cli", "ordinary").kind,
+            "directory"
+        );
         for result in [
             f.service.install(&source, "zcode", "new"),
             f.service.copy_to("copilot", "ordinary", "zcode"),

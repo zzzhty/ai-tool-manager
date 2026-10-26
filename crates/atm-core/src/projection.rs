@@ -290,7 +290,11 @@ impl ProjectionRegistry {
         // creating projections so interrupted work remains visible and removable.
         let mut unique = std::collections::HashSet::new();
         for target in targets {
-            if !unique.insert(target) {
+            if !unique.insert(target_root_dir(
+                &self.home,
+                target,
+                self.inherit_environment,
+            )?) {
                 return Err(Error::new("SKILLS_TAKEN", "投影目标重复。"));
             }
             self.require_free_target(target, name)?;
@@ -374,11 +378,14 @@ impl ProjectionRegistry {
                     "单个技能源的投影数超出上限。",
                 ));
             }
-            if record
-                .projections
-                .iter()
-                .any(|projection| projection.root_id == target_root && projection.link_name == name)
-            {
+            if record.projections.iter().any(|projection| {
+                crate::skills::same_root(
+                    &self.home,
+                    self.inherit_environment,
+                    &projection.root_id,
+                    target_root,
+                ) && projection.link_name == name
+            }) {
                 return Err(Error::new("SKILLS_TAKEN", "该技能源已投影到此工具根。"));
             }
         }
@@ -398,7 +405,14 @@ impl ProjectionRegistry {
             }
             Self::record_mut(&mut records, name)?
                 .projections
-                .retain(|p| p.root_id != target_root);
+                .retain(|p| {
+                    !crate::skills::same_root(
+                        &self.home,
+                        self.inherit_environment,
+                        &p.root_id,
+                        target_root,
+                    )
+                });
             self.save(&records)?;
             return Err(error);
         }
@@ -406,7 +420,14 @@ impl ProjectionRegistry {
         *Self::record_mut(&mut records, name)?
             .projections
             .iter_mut()
-            .find(|p| p.root_id == target_root)
+            .find(|p| {
+                crate::skills::same_root(
+                    &self.home,
+                    self.inherit_environment,
+                    &p.root_id,
+                    target_root,
+                )
+            })
             .expect("intent exists") = actual;
         self.save(&records)?;
         Ok(format!("{target_root}/{name}"))
@@ -470,11 +491,14 @@ impl ProjectionRegistry {
         let mut records = self.load()?;
         {
             let record = Self::record_mut(&mut records, name)?;
-            if !record
-                .projections
-                .iter()
-                .any(|projection| projection.root_id == target_root && projection.link_name == name)
-            {
+            if !record.projections.iter().any(|projection| {
+                crate::skills::same_root(
+                    &self.home,
+                    self.inherit_environment,
+                    &projection.root_id,
+                    target_root,
+                ) && projection.link_name == name
+            }) {
                 return Err(Error::new(
                     "SKILLS_MISSING",
                     "登记中没有这个投影；请先用 check 核对。",
@@ -485,12 +509,24 @@ impl ProjectionRegistry {
         let identity = Self::record_mut(&mut records, name)?
             .projections
             .iter()
-            .find(|p| p.root_id == target_root)
+            .find(|p| {
+                crate::skills::same_root(
+                    &self.home,
+                    self.inherit_environment,
+                    &p.root_id,
+                    target_root,
+                )
+            })
             .and_then(|p| p.directory_identity.clone());
         self.unproject_one(&canonical, target_root, name, force, identity.as_deref())?;
         let record = Self::record_mut(&mut records, name)?;
         record.projections.retain(|projection| {
-            !(projection.root_id == target_root && projection.link_name == name)
+            !(crate::skills::same_root(
+                &self.home,
+                self.inherit_environment,
+                &projection.root_id,
+                target_root,
+            ) && projection.link_name == name)
         });
         self.save(&records)?;
         Ok(())
@@ -504,7 +540,12 @@ impl ProjectionRegistry {
             .iter()
             .find(|record| {
                 record.projections.iter().any(|projection| {
-                    projection.root_id == target_root && projection.link_name == link_name
+                    crate::skills::same_root(
+                        &self.home,
+                        self.inherit_environment,
+                        &projection.root_id,
+                        target_root,
+                    ) && projection.link_name == link_name
                 })
             })
             .ok_or_else(|| Error::new("SKILLS_MISSING", "该条目不是本管理器的投影。"))?;

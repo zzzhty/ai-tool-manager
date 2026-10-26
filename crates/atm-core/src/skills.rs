@@ -19,105 +19,7 @@ const MAX_INSTALL_DEPTH: usize = 8;
 const MAX_NAME_BYTES: usize = 64;
 const STAGING_PREFIX: &str = ".atm-skills-staging-";
 
-/// Declared skill roots; path semantics mirror the atm-harness registry but
-/// are owned here so inventory works with no manager installed.
-const ROOTS: &[RootSpec] = &[
-    RootSpec {
-        id: "claude-code",
-        label: "Claude Code",
-        env: Some("CLAUDE_CONFIG_DIR"),
-        tail: ".claude",
-        sub: None,
-    },
-    RootSpec {
-        id: "copilot",
-        label: "Copilot CLI / VS Code",
-        env: Some("COPILOT_HOME"),
-        tail: ".copilot",
-        sub: None,
-    },
-    RootSpec {
-        id: "codex",
-        label: "Codex",
-        env: Some("CODEX_HOME"),
-        tail: ".codex",
-        sub: None,
-    },
-    RootSpec {
-        id: "zcode",
-        label: "Z Code",
-        env: None,
-        tail: ".zcode",
-        sub: None,
-    },
-    RootSpec {
-        id: "gemini-cli",
-        label: "Gemini CLI",
-        env: Some("GEMINI_CLI_HOME"),
-        tail: "",
-        sub: Some(".gemini"),
-    },
-    RootSpec {
-        id: "opencode",
-        label: "OpenCode",
-        env: None,
-        tail: ".config/opencode",
-        sub: None,
-    },
-    RootSpec {
-        id: "openclaw",
-        label: "OpenClaw",
-        env: Some("OPENCLAW_STATE_DIR"),
-        tail: ".openclaw",
-        sub: None,
-    },
-    RootSpec {
-        id: "pi-agent",
-        label: "Pi Agent",
-        env: Some("PI_CODING_AGENT_DIR"),
-        tail: ".pi/agent",
-        sub: None,
-    },
-];
-
-const ROOT_SKILLS_TAIL: &str = "skills";
-
-struct RootSpec {
-    id: &'static str,
-    label: &'static str,
-    env: Option<&'static str>,
-    tail: &'static str,
-    /// Directory inserted between the base and `skills` (Gemini: `.gemini`).
-    sub: Option<&'static str>,
-}
-
-impl RootSpec {
-    /// `<base>[/<sub>]/skills` where base is the env override or `<home>/<tail>`.
-    pub(crate) fn resolve(&self, home: &Path, inherit_environment: bool) -> PathBuf {
-        let override_path = if inherit_environment {
-            self.env.and_then(std::env::var_os)
-        } else {
-            None
-        };
-        let base = match override_path {
-            Some(value) if !value.is_empty() && Path::new(&value).is_absolute() => {
-                PathBuf::from(value)
-            }
-            _ => home.join(self.tail),
-        };
-        match self.sub {
-            Some(sub) => base.join(sub).join(ROOT_SKILLS_TAIL),
-            None => base.join(ROOT_SKILLS_TAIL),
-        }
-    }
-}
-
-fn root_spec(root_id: &str) -> Result<&'static RootSpec> {
-    ROOTS
-        .iter()
-        .find(|root| root.id == root_id)
-        .ok_or_else(|| Error::new("SKILLS_NAME", "未知的技能根标识。"))
-}
+use crate::tool_catalog::{find as root_spec, TOOLS as ROOTS};
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -428,9 +330,20 @@ pub(crate) fn target_root_dir(
     root_id: &str,
     inherit_environment: bool,
 ) -> Result<PathBuf> {
-    let root = root_spec(root_id)?.resolve(home, inherit_environment);
+    let root = root_spec(root_id)?.resolve(home, inherit_environment)?;
     require_unprotected_skill_path(home, &root)?;
     Ok(root)
+}
+
+// Aliases and tools sharing a physical root must preserve existing ownership.
+pub(crate) fn same_root(home: &Path, inherit: bool, a: &str, b: &str) -> bool {
+    match (
+        target_root_dir(home, a, inherit),
+        target_root_dir(home, b, inherit),
+    ) {
+        (Ok(a), Ok(b)) => normalized_path(&a, 0) == normalized_path(&b, 0),
+        _ => a == b,
+    }
 }
 
 // New collision records use a reserved container, retaining the original name
@@ -596,10 +509,10 @@ impl SkillsService {
 
     fn reject_registered(&self, root_id: &str, name: &str) -> Result<()> {
         if self.projection_records()?.iter().any(|record| {
-            record
-                .projections
-                .iter()
-                .any(|p| p.root_id == root_id && p.link_name == name)
+            record.projections.iter().any(|p| {
+                same_root(&self.home, self.inherit_environment, &p.root_id, root_id)
+                    && p.link_name == name
+            })
         }) {
             return Err(Error::new(
                 "SKILLS_PROJECTED",
@@ -651,10 +564,10 @@ impl SkillsService {
                     let mut view =
                         classify_entry(&entry.path(), &entry_name, manager_repo.as_deref());
                     if records.iter().any(|record| {
-                        record
-                            .projections
-                            .iter()
-                            .any(|p| p.root_id == spec.id && p.link_name == entry_name)
+                        record.projections.iter().any(|p| {
+                            same_root(&self.home, self.inherit_environment, &p.root_id, spec.id)
+                                && p.link_name == entry_name
+                        })
                     }) {
                         view.kind = "lkm_projected";
                     }
@@ -795,10 +708,10 @@ impl SkillsService {
         checked_name(name)?;
         storage::ensure_directory(&self.trash_root)?;
         if self.projection_records()?.iter().any(|record| {
-            record
-                .projections
-                .iter()
-                .any(|p| p.root_id == root_id && p.link_name == name)
+            record.projections.iter().any(|p| {
+                same_root(&self.home, self.inherit_environment, &p.root_id, root_id)
+                    && p.link_name == name
+            })
         }) {
             return Err(Error::new(
                 "SKILLS_PROJECTED",

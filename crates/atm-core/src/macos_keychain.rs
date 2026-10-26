@@ -6,7 +6,7 @@ use aes_gcm::{
 };
 use zeroize::Zeroizing;
 
-pub(crate) const SERVICE: &str = "com.ai-tool-manager.desktop.storage.v1";
+pub(crate) const SERVICE: &str = "com.ai-tooling-manager.desktop.storage.v1";
 pub(crate) const ACCOUNT: &str = "macos-aes-gcm-master-v1";
 const HEADER: &[u8] = b"LKM-MACOS-V1\0";
 
@@ -338,7 +338,7 @@ mod native {
             unsafe {
                 let data =
                     Owned::checked(CFDataCreate(ptr::null(), key.as_ptr(), key.len() as isize))?;
-                let label = Owned::string("AI Tool Manager macOS encryption key")?;
+                let label = Owned::string("AI Tooling Manager macOS encryption key")?;
                 let attributes = query(&[(kSecValueData, data.0), (kSecAttrLabel, label.0)])?;
                 let status = SecItemAdd(attributes.0, ptr::null_mut());
                 if status == 0 {
@@ -389,7 +389,7 @@ mod tests {
     }
     #[test]
     fn stable_platform_identity_and_distinct_authenticated_envelope() {
-        assert_eq!(SERVICE, "com.ai-tool-manager.desktop.storage.v1");
+        assert_eq!(SERVICE, "com.ai-tooling-manager.desktop.storage.v1");
         assert_eq!(ACCOUNT, "macos-aes-gcm-master-v1");
         let p = AeadProtector::new(Zeroizing::new([0xa5; 32]));
         let plain = b"TEST_ONLY_secret";

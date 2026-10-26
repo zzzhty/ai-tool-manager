@@ -134,9 +134,9 @@ fn parse(rest: &[String], options: &[&'static str]) -> Result<Parsed> {
             continue;
         }
         // Options in this grammar never take values inline; only --harness,
-        // --to, --from, --name consume the following token.
+        // --to, --from, --name and --home consume the following token.
         match argument {
-            "--harness" | "--to" | "--from" | "--name" => {
+            "--harness" | "--to" | "--from" | "--name" | "--home" => {
                 index += 1;
                 let value = rest.get(index).ok_or_else(usage_error)?;
                 if value.is_empty() || value.starts_with('-') {
@@ -146,6 +146,7 @@ fn parse(rest: &[String], options: &[&'static str]) -> Result<Parsed> {
                     "--harness" => "--harness",
                     "--to" => "--to",
                     "--from" => "--from",
+                    "--home" => "--home",
                     _ => "--name",
                 };
                 parsed.values.push((key, value.clone()));

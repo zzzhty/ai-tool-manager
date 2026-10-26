@@ -55,6 +55,7 @@ from manager_state import (
     write_manager,
 )
 from plugin_package_identity import require_repository_identity
+from embedded_identity import ALGORITHM, content_identity
 from manager_environment import ensure_user_path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -483,7 +484,7 @@ def _embedded_source(repo: Path) -> dict | None:
 def _embedded_revision(payload: dict) -> str:
     """A stable 40-hex revision derived from the recorded embedded identity."""
     digest = hashlib.sha256(
-        f"{payload['embeddedIdentity']}|{payload['embeddedVersion']}".encode("utf-8")
+        f"{payload.get('engineIdentity', payload['embeddedIdentity'])}|{payload['embeddedVersion']}".encode("utf-8")
     ).hexdigest()
     return digest[:40]
 
@@ -536,6 +537,9 @@ def _state_context(
     if embedded is not None:
         # Embedded installations ship with ATM releases: identity comes from the
         # recorded marker, and the content identity below is the drift check.
+        if (embedded.get("engineIdentityAlgorithm") != ALGORITHM
+                or embedded.get("engineIdentity") != content_identity(repo)):
+            raise SystemExit("embedded engine identity differs; run `atm harness sync` to restore it")
         repository = embedded["atmRepository"]
         revision = _embedded_revision(embedded)
     else:
@@ -697,10 +701,12 @@ def _refresh_one(
 def _write_harness_state(home: Path, harness: str, *, codex_home: str | Path | None = None) -> None:
     release, bundle = _distribution(REPO_ROOT)
     plan = _resolve_plan(harness, codex_home=expand_path(codex_home) if codex_home else None)
+    embedded = _embedded_source(REPO_ROOT)
+    revision = _embedded_revision(embedded) if embedded is not None else _revision(REPO_ROOT)
     write_harness_receipt(
         home,
         harness=harness,
-        manager_revision=_revision(REPO_ROOT),
+        manager_revision=revision,
         release_version=release,
         bundle_identity=bundle,
         root=str(plan.root),

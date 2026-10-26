@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use std::{fs::File, path::Path};
 use zeroize::Zeroizing;
 
-pub const ENTROPY: &[u8] = b"ai-tool-manager/v1/CurrentUser";
+pub const ENTROPY: &[u8] = b"ai-tooling-manager/v1/CurrentUser";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Fingerprint {
