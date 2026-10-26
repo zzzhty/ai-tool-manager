@@ -9,7 +9,7 @@ on:
         description: Validation scope (platform scopes reuse prior successful unaffected jobs)
         type: choice
         default: all
-        options: [all, linux-gui, windows-distribution]
+        options: [all, linux-gui, windows-distribution, windows-probe]
 run-name: Native validation (${{ github.event_name == 'workflow_dispatch' && inputs.validation_scope || 'all' }})
 permissions:
   contents: read
@@ -17,6 +17,37 @@ concurrency:
   group: rust-ci-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  # Temporary diagnostic: distinguish PowerShell startup from junction cost.
+  windows-probe:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.validation_scope == 'windows-probe' }}
+    runs-on: windows-latest
+    timeout-minutes: 6
+    steps:
+      - name: Compare isolated Windows runtime environments
+        shell: python
+        run: |
+          import os, pathlib, subprocess, tempfile, time
+          with tempfile.TemporaryDirectory(prefix='atm projection probe ') as tmp:
+              root = pathlib.Path(tmp)
+              keep = {'PATH', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP'}
+              minimal = {k: v for k, v in os.environ.items() if k.upper() in keep}
+              isolated = dict(HOME=str(root), USERPROFILE=str(root), APPDATA=str(root / 'appdata'), LOCALAPPDATA=str(root / 'localappdata'))
+              groups = [('minimal', set()), ('module-path', {'PSMODULEPATH'}), ('system-folders', {'PROGRAMFILES', 'PROGRAMFILES(X86)', 'PROGRAMW6432', 'PROGRAMDATA', 'ALLUSERSPROFILE'}), ('combined', {'PSMODULEPATH', 'PROGRAMFILES', 'PROGRAMFILES(X86)', 'PROGRAMW6432', 'PROGRAMDATA', 'ALLUSERSPROFILE'})]
+              for label, keys in groups:
+                  env = minimal | {k: v for k, v in os.environ.items() if k.upper() in keys} | isolated
+                  for junction in (False, True):
+                      destination = root / (label + ' target')
+                      destination.mkdir(exist_ok=True)
+                      link = root / (label + ' link')
+                      env.update(ATM_HARNESS_SKILL_LINK_PATH=str(link), ATM_HARNESS_SKILL_LINK_TARGET=str(destination))
+                      command = "$ErrorActionPreference = 'Stop'; " + ('New-Item -ItemType Junction -Path $env:ATM_HARNESS_SKILL_LINK_PATH -Target $env:ATM_HARNESS_SKILL_LINK_TARGET | Out-Null' if junction else "Write-Output 'started'")
+                      start = time.monotonic()
+                      result = subprocess.run(['powershell.exe', '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command], env=env, capture_output=True, timeout=50)
+                      print(f'PROBE {label} junction={junction} elapsed={time.monotonic() - start:.2f}s exit={result.returncode}', flush=True)
+                      assert result.returncode == 0, result.stderr
+                      if junction:
+                          assert link.resolve() == destination.resolve()
+                          link.rmdir()
   core:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.validation_scope == 'all' }}
     runs-on: ubuntu-latest
@@ -116,7 +147,7 @@ jobs:
       - name: Distribution identity ledger check
         run: python scripts/check_plugin_generations.py
   linux-desktop:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.validation_scope != 'windows-distribution' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.validation_scope == 'all' || inputs.validation_scope == 'linux-gui' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -194,7 +225,7 @@ jobs:
             target
           key: linux-desktop-${{ github.repository }}-v2-${{ hashFiles('Cargo.lock') }}-${{ github.event.pull_request.head.sha || github.sha }}
   desktop:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.validation_scope != 'linux-gui' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.validation_scope == 'all' || inputs.validation_scope == 'windows-distribution' }}
     runs-on: windows-latest
     timeout-minutes: 35
     defaults:
