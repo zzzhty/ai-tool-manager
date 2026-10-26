@@ -627,7 +627,7 @@
     },
     {
       "path": "runtimes/watcher/README.md",
-      "sha256": "e157254816adb4884378869af9b5a575e2db3950f726747933af4b138faa12f9"
+      "sha256": "ee9640f94995ab78801f8b6a60f0fdbb906dcaad70a067a825a26fe7086e252c"
     },
     {
       "path": "runtimes/watcher/config/repos.example.json",
@@ -647,7 +647,7 @@
     },
     {
       "path": "runtimes/watcher/scripts/watcher_runtime/cli.py",
-      "sha256": "b31dc0e907103de804f6d26daeed80921082c6d5edde6b3d10ad48d4b06e997a"
+      "sha256": "864eaf46697f85dcf6fd585d9ef986bb174846fa971052b19993302e2fd7ed84"
     },
     {
       "path": "runtimes/watcher/scripts/watcher_runtime/doc/__init__.py",
@@ -682,12 +682,12 @@
       "sha256": "dbeb3503006e8595274f9ed970b5223994f181f3ff0aee21ebae2f5a2486eeda"
     },
     {
-      "path": "runtimes/watcher/scripts/watcher_runtime/skill/codex_hook_adapter.py",
-      "sha256": "3c0a0e9bb990af1d85e878a6ec8904590d2813512397b90a5e75dbc8f0756f31"
+      "path": "runtimes/watcher/scripts/watcher_runtime/skill/catalog_metadata.py",
+      "sha256": "3918802d4f0d517f3dfc58d677259491d80d6a78e86132f30a82abe3637ed4b2"
     },
     {
       "path": "runtimes/watcher/scripts/watcher_runtime/skill/codex_hook_config.py",
-      "sha256": "26ccbd05d52dda133b4ce7555a995ac17bc0ea6edb472d3a17790af1802d4201"
+      "sha256": "a4dbe3634c1e40a88fe4838e09694218c7c1382c72f4e0b1520528820f2abad3"
     },
     {
       "path": "runtimes/watcher/scripts/watcher_runtime/skill/collect_event.py",
@@ -695,11 +695,11 @@
     },
     {
       "path": "runtimes/watcher/scripts/watcher_runtime/skill/doctor.py",
-      "sha256": "23b51974f080381fe1285ba470e70d160aea7ef68d1df8888a330679104745c2"
+      "sha256": "4f466b252f362e783f7faaa6b7225ed9050d8c287c34c3b15000f8d1793a9cb6"
     },
     {
       "path": "runtimes/watcher/scripts/watcher_runtime/skill/migrate_skill_watcher_schema.py",
-      "sha256": "0d5a153e33dc81454346a02cbce826ed88d65466850206138602758f4b33aa72"
+      "sha256": "d639227c70091b2be54755eb04caf886a7821e86a69d9ad6ba220271b1ed1537"
     },
     {
       "path": "runtimes/watcher/scripts/watcher_runtime/skill/proposal_artifact.py",
@@ -719,7 +719,7 @@
     },
     {
       "path": "runtimes/watcher/scripts/watcher_runtime/skill/report_pipeline.py",
-      "sha256": "0b74da040782fc9dc0d7eca09e5d29d8c7ac8b5b555a5d52d57ac01a74912db2"
+      "sha256": "15bda7e190e5641ea5067acb71305c5cb843fc19388c455c785413171446fcb7"
     },
     {
       "path": "runtimes/watcher/scripts/watcher_runtime/skill/runtime_paths.py",
@@ -870,7 +870,6 @@
     }
   ],
   "runtimeBindings": {
-    "hook:watcher": "watcher",
     "watcher:doc-alignment": "maintenance",
     "watcher:skill-maintainer": "maintenance-validation",
     "workflow:long-running-goal": "workflow",

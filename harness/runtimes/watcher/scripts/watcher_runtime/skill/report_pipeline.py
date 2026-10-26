@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .codex_hook_adapter import load_runtime_metadata
+from .catalog_metadata import load_runtime_metadata
 from .runtime_paths import report_state_path, reports_dir, safe_slug, utc_now
 
 

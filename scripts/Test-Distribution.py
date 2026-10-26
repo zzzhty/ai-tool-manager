@@ -31,22 +31,21 @@ def verify_runtime_payload(cache: Path, manifest: dict, identity: str, env: dict
             assert (cache / lock).is_file()
             assert "--hash=sha256:" in (cache / lock).read_text(encoding="utf-8")
     ids = {skill["id"] for skill in catalog["skills"]}
-    assert set(manifest["runtimeBindings"]) <= ids | {"hook:watcher"}
+    assert set(manifest["runtimeBindings"]) <= ids
+    assert not any(key.startswith("hook:") for key in manifest["runtimeBindings"])
     for entry in manifest["files"]:
         if entry["path"].endswith(".py"):
             ast.parse((cache / entry["path"]).read_text(encoding="utf-8"), filename=entry["path"])
     watcher = cache / "runtimes/watcher/scripts/watcher"
     assert watcher.is_file() and not (cache / "scripts").exists()
     before = {path.relative_to(root) for path in root.rglob("*")}
-    for name in ("maintenance:doc-alignment", "watcher:doc-alignment", "doc-watcher:doc-alignment"):
-        # The runner provides Python solely to exercise a Python payload. The
-        # distributor itself retains empty PATH and never creates a venv.
-        result = subprocess.run(
-            [sys.executable, "-S", "-B", str(watcher), "skill", "observe", "--repo-root", str(cache), "--dry-run"],
-            input=json.dumps({"hook_event_name": "UserPromptSubmit", "skill_name": name}),
-            cwd=root, env=env, capture_output=True, text=True, encoding="utf-8", timeout=30, check=True,
-        )
-        assert json.loads(result.stdout)["skill_attribution"]["primary"]["name"] == "watcher:doc-alignment"
+    assert not (cache / "runtimes/watcher/scripts/watcher_runtime/skill/codex_hook_adapter.py").exists()
+    # Exercise retained catalog reading with the runner's Python; no collector,
+    # installer or client process participates and no history is rewritten.
+    code = "from pathlib import Path; import sys; sys.path.insert(0,sys.argv[1]); from watcher_runtime.skill.catalog_metadata import discover_skill_metadata; m=discover_skill_metadata(sys.argv[2]); assert m['legacy_names']['maintenance:doc-alignment']=='watcher:doc-alignment'; assert m['legacy_names']['doc-watcher:doc-alignment']=='watcher:doc-alignment'"
+    subprocess.run([sys.executable, "-S", "-B", "-c", code, str(cache / "runtimes/watcher/scripts"), str(cache)], cwd=root, env=env, capture_output=True, text=True, encoding="utf-8", timeout=30, check=True)
+    retired = subprocess.run([sys.executable, "-S", "-B", str(watcher), "skill", "observe"], cwd=root, env=env, capture_output=True, text=True, encoding="utf-8", timeout=30)
+    assert retired.returncode != 0 and "unknown skill command: observe" in retired.stderr
     assert {path.relative_to(root) for path in root.rglob("*")} == before, "read-only payload check wrote files"
     print(f"DISTRIBUTION_PAYLOAD=PASS: {len(catalog['skills'])} catalog entries, runtime locks/scripts, historical identity, no venv/hooks", flush=True)
 

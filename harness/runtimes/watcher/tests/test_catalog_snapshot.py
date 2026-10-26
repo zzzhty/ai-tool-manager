@@ -15,7 +15,7 @@ RUNTIME = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RUNTIME / "scripts"))
 from watcher_runtime import cli
 from watcher_runtime.repository_source import resolve_repository_source, load_repository_skill_catalog
-from watcher_runtime.skill.codex_hook_adapter import discover_skill_metadata, normalize_hook_payload, write_hook_event
+from watcher_runtime.skill.catalog_metadata import discover_skill_metadata, write_dynamic_monitored_skills
 
 
 class SnapshotTests(unittest.TestCase):
@@ -96,36 +96,36 @@ class SnapshotTests(unittest.TestCase):
     def test_current_and_historical_names_keep_one_attribution_identity(self) -> None:
         for identity in ("watcher:doc-alignment", "maintenance:doc-alignment", "doc-watcher:doc-alignment"):
             with self.subTest(identity=identity):
-                event = normalize_hook_payload({"hook_event_name": "UserPromptSubmit", "skill_name": identity}, repo_root=self.root)
-                self.assertEqual(event["skill_attribution"]["primary"]["name"], "watcher:doc-alignment")
+                metadata = discover_skill_metadata(self.root)
+                self.assertEqual(metadata["legacy_names"].get(identity, identity), "watcher:doc-alignment")
 
-    def test_session_start_refresh_preserves_existing_logs(self) -> None:
+    def test_explicit_metadata_refresh_preserves_existing_logs(self) -> None:
         state = self.root / "state"
         log = state / "logs/events.jsonl"
         log.parent.mkdir(parents=True)
         history = b'{"event_type":"historical","skill_name":"doc-watcher:doc-alignment"}\n'
         log.write_bytes(history)
-        write_hook_event({"hook_event_name": "SessionStart", "session_id": "snapshot-test"}, state_dir=state, repo_root=self.root)
+        write_dynamic_monitored_skills(state, discover_skill_metadata(self.root))
         self.assertEqual(log.read_bytes(), history)
         metadata = json.loads((state / "skill-metadata-cache.json").read_text())
         self.assertEqual(metadata["source_identity"], "a" * 64)
         self.assertFalse((self.root / "hooks.json").exists())
 
-    def test_observer_runs_with_python_site_packages_disabled(self) -> None:
+    def test_retired_observer_refuses_without_writing_state(self) -> None:
         env = os.environ.copy()
         env["HOME"] = str(self.root / "fake-home")
         env["USERPROFILE"] = env["HOME"]
         env["CODEX_HOME"] = str(self.root / "fake-codex")
         command = [sys.executable, "-S", "-B", str(RUNTIME / "scripts/watcher"), "skill", "observe", "--repo-root", str(self.root), "--dry-run"]
         result = subprocess.run(command, input=json.dumps({"hook_event_name": "UserPromptSubmit", "skill_name": "maintenance:doc-alignment"}), env=env, capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout)["skill_attribution"]["primary"]["name"], "watcher:doc-alignment")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unknown skill command: observe", result.stderr)
         self.assertFalse(Path(env["CODEX_HOME"]).exists())
 
     def test_python_cli_has_no_hook_install_or_uninstall_entrypoints(self) -> None:
         self.assertNotIn("install-hook", cli.COMMAND_MODULES["skill"])
         self.assertNotIn("uninstall-hook", cli.COMMAND_MODULES["skill"])
         with mock.patch("sys.stderr"), mock.patch("sys.stdout"):
-            for command in ("install-hook", "uninstall-hook"):
+            for command in ("install-hook", "uninstall-hook", "observe"):
                 self.assertNotEqual(cli.main(["skill", command, "--apply"]), 0)
         self.assertFalse((self.root / "hooks.json").exists())

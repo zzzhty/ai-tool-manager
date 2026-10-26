@@ -230,6 +230,9 @@ impl Service {
             ));
         }
         let previous = self.read_state()?;
+        if previous.as_ref().is_some_and(|state| state.hooks.is_some()) {
+            return Err(Error::new("HARNESS_HOOK_RETIREMENT_REQUIRED", "更新内容前请先执行 atm uninstall hooks --harness codex，退役已记录的 skill-watcher hooks。"));
+        }
         if previous.is_none()
             && (self.home.join("state/manager.json").exists()
                 || self.home.join("state/desired.json").exists()
@@ -626,7 +629,7 @@ impl Service {
             }
         }
         if self.check_hooks()?.get("passed").and_then(Value::as_bool) == Some(false) {
-            issues.push("hook-drift".into());
+            issues.push("retired-hook-enabled-or-drift".into());
         }
         Ok(
             json!({"passed":issues.is_empty(),"exitCode":if issues.is_empty(){0}else{1},"issues":issues}),
@@ -678,6 +681,9 @@ impl Service {
         Ok(json!({"prepared":prepared,"hooksEnabled":state.hooks.is_some()}))
     }
     pub fn hooks(&self, enable: bool, dry_run: bool) -> Result<Value> {
+        if enable {
+            return Err(hooks::retired());
+        }
         let _lock = if dry_run {
             None
         } else {
@@ -693,38 +699,10 @@ impl Service {
         let (_, skills) = self.root("codex")?;
         let target = skills.parent().ok_or_else(invalid)?.join("hooks.json");
         let current = transaction::file_bytes(&target)?;
-        let prepared = state.runtimes.get("watcher");
-        if enable {
-            let bundle = self.bundle(&state)?;
-            let spec: runtime::RuntimeSpec = serde_json::from_value(
-                bundle.manifest["runtimeGroups"]
-                    .as_array()
-                    .and_then(|v| v.iter().find(|g| g["id"].as_str() == Some("watcher")))
-                    .cloned()
-                    .ok_or_else(|| {
-                        Error::new("HARNESS_RUNTIME_SPEC", "没有声明 Watcher runtime 组。")
-                    })?,
-            )
-            .map_err(|_| invalid())?;
-            let prepared = prepared.ok_or_else(|| {
-                Error::new(
-                    "HARNESS_RUNTIME_REQUIRED",
-                    "请先显式准备 watcher payload runtime，再启用 hook。",
-                )
-            })?;
-            runtime::verify(
-                &self.home,
-                &self.cache(&state.source_identity),
-                &spec,
-                prepared,
-            )?;
-        }
-        let plan = hooks::plan(
+        let plan = hooks::plan_removal(
             &target,
             current.as_deref(),
             state.hooks.as_ref(),
-            enable,
-            prepared,
             &self.cache(&state.source_identity),
         )?;
         if dry_run {
@@ -756,30 +734,18 @@ impl Service {
         };
         let valid = (|| -> Result<()> {
             let current = transaction::file_bytes(&owner.target)?;
-            hooks::plan(
+            hooks::plan_removal(
                 &owner.target,
                 current.as_deref(),
                 Some(owner),
-                false,
-                None,
                 &owner.bundle_root,
             )?;
-            let bundle = source::load(&owner.bundle_root)?;
-            if owner.bundle_root != self.cache(&bundle.identity) {
-                return Err(invalid());
-            }
-            let spec: runtime::RuntimeSpec = serde_json::from_value(
-                bundle.manifest["runtimeGroups"]
-                    .as_array()
-                    .and_then(|v| v.iter().find(|g| g["id"].as_str() == Some("watcher")))
-                    .cloned()
-                    .ok_or_else(invalid)?,
-            )
-            .map_err(|_| invalid())?;
-            runtime::verify(&self.home, &owner.bundle_root, &spec, &owner.runtime)
+            Ok(())
         })()
         .is_ok();
-        Ok(json!({"passed":valid,"enabled":true,"exitCode":if valid{0}else{1}}))
+        Ok(
+            json!({"passed":false,"enabled":true,"retired":true,"ownershipVerified":valid,"issue":if valid{"retired-hook-enabled"}else{"hook-drift"},"exitCode":1}),
+        )
     }
     /// Read-only adoption preview. A later apply rebuilds this same plan under
     /// the manager lock; preview does not reserve ownership or promise that
