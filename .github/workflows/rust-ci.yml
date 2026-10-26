@@ -32,11 +32,12 @@ jobs:
               keep = {'PATH', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP'}
               minimal = {k: v for k, v in os.environ.items() if k.upper() in keep}
               isolated = dict(HOME=str(root), USERPROFILE=str(root), APPDATA=str(root / 'appdata'), LOCALAPPDATA=str(root / 'localappdata'))
+              print('RUNTIME_VARIABLE_NAMES=' + ','.join(sorted(k for k in os.environ if k.upper().startswith(('PS', 'POWERSHELL', 'DOTNET', 'COMPLUS')))))
               groups = [
-                  ('computer-name', {'COMPUTERNAME'}),
-                  ('system-drive', {'SYSTEMDRIVE'}),
-                  ('machine-runtime', {'OS', 'SYSTEMDRIVE', 'COMPUTERNAME', 'PUBLIC', 'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE', 'PROCESSOR_IDENTIFIER', 'PROCESSOR_LEVEL', 'PROCESSOR_REVISION', 'COMMONPROGRAMFILES', 'COMMONPROGRAMFILES(X86)', 'COMMONPROGRAMW6432'}),
-                  ('powershell-runtime', {k.upper() for k in os.environ if k.upper().startswith(('PS', 'POWERSHELL', 'DOTNET', 'COMPLUS'))}),
+                  ('module-analysis-cache', {'PSMODULEANALYSISCACHEPATH'}),
+                  ('execution-policy', {'PSEXECUTIONPOLICYPREFERENCE'}),
+                  ('dotnet-runtime', {k.upper() for k in os.environ if k.upper().startswith(('DOTNET', 'COMPLUS'))}),
+                  ('powershell-config', {k.upper() for k in os.environ if k.upper().startswith('POWERSHELL')}),
               ]
               for label, keys in groups:
                   env = minimal | {k: v for k, v in os.environ.items() if k.upper() in keys} | isolated
