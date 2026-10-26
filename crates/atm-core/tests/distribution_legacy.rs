@@ -918,7 +918,7 @@ fn adoption_preview_is_read_only_reports_exact_changes_and_apply_revalidates() {
     let source = new_source(&fixture);
     let service = service(&fixture, "zcode");
     let before = snapshot_tree(fixture._temp.path());
-    let preview = service.preview_adopt(&source).unwrap();
+    let preview = service.preview_adopt(&source, &[]).unwrap();
     assert_eq!(
         snapshot_tree(fixture._temp.path()),
         before,
@@ -992,7 +992,9 @@ fn failed_adoption_preview_preserves_every_file_and_creates_no_lock() {
     let source = new_source(&fixture);
     write(&fixture.target.join("AGENTS.md"), b"user content\n");
     let before = snapshot_tree(fixture._temp.path());
-    assert!(service(&fixture, "zcode").preview_adopt(&source).is_err());
+    assert!(service(&fixture, "zcode")
+        .preview_adopt(&source, &[])
+        .is_err());
     assert_eq!(snapshot_tree(fixture._temp.path()), before);
     assert!(!fixture.home.join("state/manager.lock").exists());
     assert!(!fixture.home.join("cache").exists());
@@ -1049,4 +1051,201 @@ fn physical_root_binding_still_rejects_a_linked_receipt_root() {
         fs::read(fixture.target.join("AGENTS.md")).unwrap(),
         b"# ordinary source instructions\n"
     );
+}
+
+#[test]
+fn explicit_missing_retirement_archives_evidence_without_recreating_target() {
+    let fixture = Fixture::new(true);
+    let source = new_source(&fixture);
+    let service = service(&fixture, "zcode");
+    let handoff = inspect(&fixture.home).unwrap().unwrap();
+    let archive = fixture
+        .home
+        .join("state/legacy-handoff")
+        .join(&handoff.identity);
+    let original = fs::read(fixture.home.join("state/harnesses/zcode.json")).unwrap();
+    write(
+        &fixture.home.join("logs/history.jsonl"),
+        b"retained history\n",
+    );
+    let before = snapshot_tree(fixture._temp.path());
+    // Omitting the option retains the old explicit adoption behavior.
+    assert_eq!(
+        service.preview_adopt(&source, &[]).unwrap()["targets"][0]["harness"],
+        "zcode"
+    );
+    let preview = service.preview_adopt(&source, &["zcode".into()]).unwrap();
+    assert_eq!(preview["targets"], json!([]));
+    assert!(preview["retiredMissingTargets"]["zcode"].is_string());
+    assert_eq!(snapshot_tree(fixture._temp.path()), before);
+    let status = service.adopt(&source, &["zcode".into()]).unwrap();
+    assert_eq!(status["desiredHarnesses"], json!([]));
+    assert_eq!(status["hooksEnabled"], false);
+    assert!(!fixture.target.exists());
+    assert!(!fixture.home.join("state/manager.json").exists());
+    assert!(!fixture.home.join("state/desired.json").exists());
+    assert!(!fixture.home.join("state/harnesses/zcode.json").exists());
+    assert_eq!(
+        fs::read(archive.join("state/harnesses/zcode.json")).unwrap(),
+        original
+    );
+    let decision: serde_json::Value =
+        serde_json::from_slice(&fs::read(archive.join("retired-missing-targets.json")).unwrap())
+            .unwrap();
+    assert_eq!(decision["reason"], "explicit-missing-root-retirement");
+    assert_eq!(decision["handoffIdentity"], handoff.identity);
+    assert_eq!(decision["targets"], preview["retiredMissingTargets"]);
+    assert_eq!(
+        fs::read(fixture.home.join("logs/history.jsonl")).unwrap(),
+        b"retained history\n"
+    );
+    // A completed handoff cannot silently accept another retirement request.
+    assert!(service.adopt(&source, &["zcode".into()]).is_err());
+    assert!(!fixture.target.exists());
+}
+
+#[test]
+fn retirement_refuses_present_roots_and_preserves_user_files() {
+    for kind in ["empty", "user", "file"] {
+        let fixture = Fixture::new(true);
+        let source = new_source(&fixture);
+        match kind {
+            "empty" => fs::create_dir_all(&fixture.target).unwrap(),
+            "user" => write(&fixture.target.join("unowned.txt"), b"user-owned\n"),
+            _ => write(&fixture.target, b"not a directory\n"),
+        }
+        let service = service(&fixture, "zcode");
+        let before = snapshot_tree(fixture._temp.path());
+        assert!(service.preview_adopt(&source, &["zcode".into()]).is_err());
+        assert_eq!(snapshot_tree(fixture._temp.path()), before);
+        assert!(service.adopt(&source, &["zcode".into()]).is_err());
+        assert!(!fixture.home.join("cache").exists());
+        assert!(!fixture.home.join("state/distribution.json").exists());
+        assert!(fixture.home.join("state/harnesses/zcode.json").is_file());
+        if kind == "user" {
+            assert_eq!(
+                fs::read(fixture.target.join("unowned.txt")).unwrap(),
+                b"user-owned\n"
+            );
+        }
+    }
+}
+
+#[test]
+fn retirement_rechecks_absence_after_preview_and_requires_recorded_bound_target() {
+    let fixture = Fixture::new(true);
+    let source = new_source(&fixture);
+    let service = service(&fixture, "zcode");
+    for requested in [
+        vec!["unknown".into()],
+        vec!["codex".into()],
+        vec!["zcode".into(), "zcode".into()],
+    ] {
+        assert_eq!(
+            service.preview_adopt(&source, &requested).unwrap_err().code,
+            "HARNESS_REQUEST"
+        );
+    }
+    let wrong_root = fixture._temp.path().join("not the recorded root/skills");
+    assert!(service
+        .clone()
+        .with_target_roots(BTreeMap::from([("zcode".into(), wrong_root)]))
+        .preview_adopt(&source, &["zcode".into()])
+        .is_err());
+    service.preview_adopt(&source, &["zcode".into()]).unwrap();
+    write(
+        &fixture.target.join("user.txt"),
+        b"appeared after preview\n",
+    );
+    assert_eq!(
+        service.adopt(&source, &["zcode".into()]).unwrap_err().code,
+        "HARNESS_RETIRE_ROOT_PRESENT"
+    );
+    assert_eq!(
+        fs::read(fixture.target.join("user.txt")).unwrap(),
+        b"appeared after preview\n"
+    );
+    assert!(!fixture.home.join("cache").exists());
+    assert!(fixture.home.join("state/manager.json").is_file());
+    assert!(!fixture.home.join("state/distribution.json").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn retirement_never_treats_a_dangling_root_link_as_missing() {
+    let fixture = Fixture::new(true);
+    let source = new_source(&fixture);
+    fs::create_dir_all(fixture.target.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(fixture._temp.path().join("absent"), &fixture.target).unwrap();
+    assert!(service(&fixture, "zcode")
+        .adopt(&source, &["zcode".into()])
+        .is_err());
+    assert!(fixture.target.is_symlink());
+    assert!(fixture.home.join("state/manager.json").exists());
+    assert!(!fixture.home.join("state/distribution.json").exists());
+}
+
+#[test]
+fn retiring_one_missing_target_still_adopts_other_recorded_targets() {
+    let fixture = Fixture::new(true);
+    let absent = fixture.target.parent().unwrap().join(".openclaw");
+    let repo = fixture.home.join("repo");
+    let registry_path = repo.join(".agents/harnesses/registry.json");
+    let mut registry: serde_json::Value =
+        serde_json::from_slice(&fs::read(&registry_path).unwrap()).unwrap();
+    registry["harnesses"]["openclaw"] = json!({"skills":{"driver":"directory-projection","relativePath":"skills"},"instructions":{"driver":"none"}});
+    write_json(&registry_path, registry);
+    let identity = hash_source(&repo);
+    let mut marker: serde_json::Value =
+        serde_json::from_slice(&fs::read(repo.join(".atm-embedded.json")).unwrap()).unwrap();
+    marker["engineIdentity"] = json!(identity);
+    write_json(&repo.join(".atm-embedded.json"), marker);
+    let mut manager: serde_json::Value =
+        serde_json::from_slice(&fs::read(fixture.home.join("state/manager.json")).unwrap())
+            .unwrap();
+    manager["revision"] = json!(
+        &format!(
+            "{:x}",
+            Sha256::digest(format!("{identity}|1.1.0").as_bytes())
+        )[..40]
+    );
+    write_json(&fixture.home.join("state/manager.json"), manager);
+    let mut receipt: serde_json::Value =
+        serde_json::from_slice(&fs::read(fixture.home.join("state/harnesses/zcode.json")).unwrap())
+            .unwrap();
+    receipt["harness"] = json!("openclaw");
+    receipt["root"] = json!(absent);
+    write_json(&fixture.home.join("state/harnesses/openclaw.json"), receipt);
+    write_json(
+        &fixture.home.join("state/desired.json"),
+        json!({"schemaVersion":"2026-08-24","harnesses":["openclaw","zcode"],"updatePolicy":{"channel":"stable"}}),
+    );
+    write(
+        &fixture.target.join("AGENTS.md"),
+        b"# ordinary source instructions\n",
+    );
+    write(&fixture.target.join("user.txt"), b"keep this\n");
+    let source = new_source(&fixture);
+    let service = service(&fixture, "zcode").with_target_roots(BTreeMap::from([
+        ("zcode".into(), fixture.target.join("skills")),
+        ("openclaw".into(), absent.join("skills")),
+    ]));
+    let preview = service
+        .preview_adopt(&source, &["openclaw".into()])
+        .unwrap();
+    assert_eq!(preview["targets"].as_array().unwrap().len(), 1);
+    assert_eq!(preview["targets"][0]["harness"], "zcode");
+    let status = service.adopt(&source, &["openclaw".into()]).unwrap();
+    assert_eq!(status["desiredHarnesses"], json!(["zcode"]));
+    assert!(!absent.exists());
+    assert_eq!(
+        fs::read(fixture.target.join("user.txt")).unwrap(),
+        b"keep this\n"
+    );
+    assert_eq!(
+        fs::read(fixture.target.join("AGENTS.md")).unwrap(),
+        b"# New Rust-owned instructions\n"
+    );
+    service.execute("refresh", &["zcode".into()]).unwrap();
+    assert!(!absent.exists());
 }

@@ -833,6 +833,62 @@ mod rust_distribution {
     }
 
     #[test]
+    fn missing_target_retirement_option_is_bounded_to_adoption() {
+        let env = Env::new();
+        let source = payload(&env);
+        let home = env.home.path().join("retirement manager");
+        for command in ["bootstrap", "sync", "status"] {
+            let output = native(
+                &env,
+                &[
+                    "harness",
+                    command,
+                    "--home",
+                    home.to_str().unwrap(),
+                    "--retire-missing",
+                    "openclaw",
+                ],
+            );
+            assert_code(&output, 1);
+            assert!(String::from_utf8_lossy(&output.stderr).contains("CLI_ARGUMENT"));
+            assert!(!home.exists());
+        }
+        for value in ["openclaw,", "openclaw,openclaw", ","] {
+            let output = native(
+                &env,
+                &[
+                    "harness",
+                    "adopt",
+                    "--home",
+                    home.to_str().unwrap(),
+                    "--retire-missing",
+                    value,
+                ],
+            );
+            assert_code(&output, 1);
+            assert!(String::from_utf8_lossy(&output.stderr).contains("CLI_ARGUMENT"));
+            assert!(!home.exists());
+        }
+        let output = native(
+            &env,
+            &[
+                "harness",
+                "adopt",
+                "--dry-run",
+                "--home",
+                home.to_str().unwrap(),
+                "--source",
+                source.to_str().unwrap(),
+                "--retire-missing",
+                "openclaw",
+            ],
+        );
+        assert_code(&output, 1);
+        assert!(String::from_utf8_lossy(&output.stderr).contains("HARNESS_LEGACY_INVALID"));
+        assert!(!home.exists());
+    }
+
+    #[test]
     fn adoption_preview_does_not_initialize_an_uninstalled_manager() {
         let env = Env::new();
         let source = payload(&env);

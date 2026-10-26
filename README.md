@@ -59,8 +59,8 @@ atm restore/purge skills <TRASH_ID>
 
 # 维护组：缓存、记录态、显式交接与中断恢复
 atm harness bootstrap|sync|status [--home PATH] [--json]
-atm harness adopt [--home PATH] --dry-run
-atm harness adopt [--home PATH]
+atm harness adopt [--home PATH] [--retire-missing ID[,ID...]] --dry-run
+atm harness adopt [--home PATH] [--retire-missing ID[,ID...]]
 atm harness recover [--home PATH]
 atm harness plan install --harness zcode
 # 仅在需要选定 Python payload 时准备；Windows 同样传绝对路径

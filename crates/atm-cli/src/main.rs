@@ -45,7 +45,8 @@ const USAGE: &str = "用法（动词优先；--harness 选择内置引擎，省�
   atm repair skills --harness <ID>[,<ID>...]             # 修复分发（不改 PATH）
   atm restore skills <TRASH_ID> / purge skills <TRASH_ID>
   atm harness bootstrap|sync [--home PATH]              # 校验并缓存随包内容，无需 Python
-  atm harness adopt [--home PATH] [--dry-run]           # 预览或显式一次性交接旧 Python 状态
+  atm harness adopt [--home PATH] [--retire-missing IDS] [--dry-run]
+                                                      # 交接旧状态；仅显式退役根目录缺失的目标
   atm harness status|recover [--json] [--home PATH]
   atm harness plan <install|refresh|remove|repair> --harness <ID>[,<ID>...]
   atm harness runtime prepare <GROUP> --python <ABS_PATH> [--external-venv <ABS_PATH>] [--offline]
@@ -103,6 +104,7 @@ fn dispatch(arguments: &[String]) -> Result<i32> {
 struct Parsed {
     positionals: Vec<String>,
     harness: Vec<String>,
+    retire_missing: Vec<String>,
     flags: Vec<&'static str>,
     values: Vec<(&'static str, String)>,
 }
@@ -113,6 +115,7 @@ fn parse(rest: &[String], options: &[&'static str]) -> Result<Parsed> {
     let mut parsed = Parsed {
         positionals: Vec::new(),
         harness: Vec::new(),
+        retire_missing: Vec::new(),
         flags: Vec::new(),
         values: Vec::new(),
     };
@@ -133,11 +136,10 @@ fn parse(rest: &[String], options: &[&'static str]) -> Result<Parsed> {
             index += 1;
             continue;
         }
-        // Options in this grammar never take values inline; only --harness,
-        // --to, --from, --name and --home consume the following token.
+        // Value options consume the following token, never an inline value.
         match argument {
             "--harness" | "--to" | "--from" | "--name" | "--home" | "--source" | "--python"
-            | "--external-venv" => {
+            | "--external-venv" | "--retire-missing" => {
                 index += 1;
                 let value = rest.get(index).ok_or_else(usage_error)?;
                 if value.is_empty() || value.starts_with('-') {
@@ -151,18 +153,24 @@ fn parse(rest: &[String], options: &[&'static str]) -> Result<Parsed> {
                     "--source" => "--source",
                     "--python" => "--python",
                     "--external-venv" => "--external-venv",
+                    "--retire-missing" => "--retire-missing",
                     _ => "--name",
                 };
                 parsed.values.push((key, value.clone()));
-                if argument == "--harness" {
+                if matches!(argument, "--harness" | "--retire-missing") {
+                    let targets = if argument == "--harness" {
+                        &mut parsed.harness
+                    } else {
+                        &mut parsed.retire_missing
+                    };
                     for target in value.split(',').map(str::trim) {
                         if target.is_empty()
                             || target.len() > 64
-                            || parsed.harness.iter().any(|existing| existing == target)
+                            || targets.iter().any(|existing| existing == target)
                         {
                             return Err(usage_error());
                         }
-                        parsed.harness.push(target.to_owned());
+                        targets.push(target.to_owned());
                     }
                 }
             }
@@ -514,7 +522,13 @@ fn dispatch_harness(rest: &[String]) -> Result<i32> {
     }
     let options: &[&str] = match subcommand {
         "bootstrap" | "sync" => &["--home", "--source", "--json"],
-        "adopt" => &["--home", "--source", "--json", "--dry-run"],
+        "adopt" => &[
+            "--home",
+            "--source",
+            "--json",
+            "--dry-run",
+            "--retire-missing",
+        ],
         "status" | "recover" => &["--home", "--json"],
         "verify-source" => &["--source", "--json"],
         _ => {
@@ -537,11 +551,10 @@ fn dispatch_harness(rest: &[String]) -> Result<i32> {
     let service = distribution_service(&parsed)?;
     let value = match subcommand {
         "adopt" if has_flag(&parsed, "--dry-run") => {
-            service.preview_adopt(&selected_source(&parsed)?)?
+            service.preview_adopt(&selected_source(&parsed)?, &parsed.retire_missing)?
         }
-        "bootstrap" | "sync" | "adopt" => {
-            service.bootstrap(&selected_source(&parsed)?, subcommand == "adopt")?
-        }
+        "adopt" => service.adopt(&selected_source(&parsed)?, &parsed.retire_missing)?,
+        "bootstrap" | "sync" => service.bootstrap(&selected_source(&parsed)?, false)?,
         "status" => service.status()?,
         "recover" => service.recover()?,
         _ => unreachable!(),

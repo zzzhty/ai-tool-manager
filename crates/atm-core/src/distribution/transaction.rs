@@ -873,6 +873,68 @@ mod tests {
     }
 
     #[test]
+    fn missing_root_retirement_recovers_each_boundary_and_refuses_reappearance() {
+        for checkpoint in 0..=3 {
+            let temp = tempfile::tempdir().unwrap();
+            let home = temp.path();
+            let root = home.join("missing-client");
+            let old = home.join("state/manager.json");
+            let archive = home.join("state/legacy-handoff/test/manager.json");
+            let receipt = home.join("state/distribution.json");
+            let old_node = Some(Node::File(b"old owner".to_vec()));
+            atomic_write(&old, b"old owner").unwrap();
+            let j = journal(vec![
+                Change {
+                    path: archive.clone(),
+                    before: None,
+                    after: old_node.clone(),
+                },
+                Change {
+                    path: old.clone(),
+                    before: old_node.clone(),
+                    after: None,
+                },
+                Change {
+                    path: receipt.clone(),
+                    before: None,
+                    after: Some(Node::File(b"new owner".to_vec())),
+                },
+                Change {
+                    path: root.clone(),
+                    before: None,
+                    after: None,
+                },
+            ]);
+            preflight_journal(home, &j).unwrap();
+            save(home, &j);
+            for change in j.changes.iter().take(checkpoint) {
+                replace_simple(change, true).unwrap();
+            }
+            recover(home).unwrap();
+            assert_eq!(snapshot(&old).unwrap(), old_node);
+            assert!(!archive.exists());
+            assert!(!receipt.exists());
+            assert!(!root.exists());
+            assert!(!pending(home));
+
+            // A root returning after plan construction blocks apply before writes.
+            fs::create_dir(&root).unwrap();
+            fs::write(root.join("user.txt"), b"user data").unwrap();
+            assert!(apply(home, j.changes.clone()).is_err());
+            assert!(!pending(home));
+            assert_eq!(snapshot(&old).unwrap(), old_node);
+
+            // An interrupted transaction retains evidence if a user root has
+            // appeared; recovery must not claim or remove that new resource.
+            save(home, &j);
+            assert!(recover(home).is_err());
+            assert!(pending(home));
+            assert_eq!(fs::read(root.join("user.txt")).unwrap(), b"user data");
+            assert_eq!(snapshot(&old).unwrap(), old_node);
+        }
+    }
+
+    #[test]
     fn lock_conflicts_and_file_recovery() {
         let temp = tempfile::tempdir().unwrap();
         let home = temp.path();
