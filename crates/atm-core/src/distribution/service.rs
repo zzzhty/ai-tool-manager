@@ -53,6 +53,7 @@ struct AdoptionPlan {
     legacy_product: String,
     handoff_identity: String,
     targets: BTreeMap<String, PathBuf>,
+    retired_missing_targets: BTreeMap<String, PathBuf>,
     changes: Vec<Change>,
 }
 #[derive(Clone, Debug)]
@@ -242,7 +243,7 @@ impl Service {
                     "检测到旧 Python 分发所有权；请显式执行 atm harness adopt。",
                 ));
             }
-            return self.adopt(&bundle);
+            return self.apply_adoption(&bundle, &[]);
         }
         self.cache_bundle(&bundle)?;
         let mut next = previous.unwrap_or(State {
@@ -783,10 +784,10 @@ impl Service {
     /// Read-only adoption preview. A later apply rebuilds this same plan under
     /// the manager lock; preview does not reserve ownership or promise that
     /// independently edited targets will still match.
-    pub fn preview_adopt(&self, source_root: &Path) -> Result<Value> {
+    pub fn preview_adopt(&self, source_root: &Path, retire_missing: &[String]) -> Result<Value> {
         let bundle = source::load(source_root)?;
         let cached = self.cached_bundle_exists(&bundle)?;
-        let plan = self.build_adoption_plan(&bundle)?;
+        let plan = self.build_adoption_plan(&bundle, retire_missing)?;
         let changes = plan
             .changes
             .iter()
@@ -806,19 +807,29 @@ impl Service {
             "legacyProduct": plan.legacy_product, "handoffIdentity": plan.handoff_identity,
             "sourceIdentity": bundle.identity, "releaseVersion": bundle.release,
             "targets": plan.targets.into_iter().map(|(harness, root)| json!({"harness":harness,"root":root})).collect::<Vec<_>>(),
+            "retiredMissingTargets": plan.retired_missing_targets,
             "cache": {"path": self.cache(&bundle.identity), "action": if cached {"reuse"} else {"create"}, "payloadFiles":bundle.files.len()},
             "hooksEnabledAfter": false, "changes": changes,
         }))
     }
-    fn adopt(&self, bundle: &source::Bundle) -> Result<Value> {
-        // bootstrap already holds the common predecessor/Rust manager lock.
+    pub fn adopt(&self, source_root: &Path, retire_missing: &[String]) -> Result<Value> {
+        let bundle = source::load(source_root)?;
+        let _lock = Lock::acquire(&self.home)?;
+        self.apply_adoption(&bundle, retire_missing)
+    }
+    fn apply_adoption(&self, bundle: &source::Bundle, retire_missing: &[String]) -> Result<Value> {
+        // Both entry points hold the common predecessor/Rust manager lock.
         // Build and validate before creating a cache or touching target state.
-        let plan = self.build_adoption_plan(bundle)?;
+        let plan = self.build_adoption_plan(bundle, retire_missing)?;
         self.cache_bundle(bundle)?;
         transaction::apply(&self.home, plan.changes)?;
         self.status()
     }
-    fn build_adoption_plan(&self, bundle: &source::Bundle) -> Result<AdoptionPlan> {
+    fn build_adoption_plan(
+        &self,
+        bundle: &source::Bundle,
+        retire_missing: &[String],
+    ) -> Result<AdoptionPlan> {
         if transaction::pending(&self.home) {
             return Err(Error::new(
                 "HARNESS_RECOVERY_REQUIRED",
@@ -844,7 +855,36 @@ impl Service {
             }
             allowed.insert(id, root);
         }
+        let mut retired_missing_targets = BTreeMap::new();
+        for target in retire_missing {
+            let tool = crate::tool_catalog::find(target)
+                .map_err(|_| Error::new("HARNESS_REQUEST", "未知退役目标。"))?;
+            let root = allowed.get(tool.id).ok_or_else(|| {
+                Error::new("HARNESS_REQUEST", "退役目标必须属于已记录的旧分发选择。")
+            })?;
+            if retired_missing_targets
+                .insert(tool.id.to_owned(), root.clone())
+                .is_some()
+            {
+                return Err(Error::new("HARNESS_REQUEST", "退役目标不能重复。"));
+            }
+            // Check the entire root, not just managed files. Symlinks (including
+            // dangling ones), empty directories and user-only roots all count as present.
+            match fs::symlink_metadata(root) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+                Err(error) => return Err(error.into()),
+                Ok(_) => {
+                    return Err(Error::new(
+                        "HARNESS_RETIRE_ROOT_PRESENT",
+                        "显式退役要求旧目标根目录完全缺失；现有文件保持原状。",
+                    ))
+                }
+            }
+        }
+        // Inspect all recorded roots before excluding any: retirement must not
+        // bypass independent root binding or predecessor ownership evidence.
         let old_targets = super::legacy::inspect_targets(&self.home, &handoff, &allowed)?;
+        allowed.retain(|target, _| !retired_missing_targets.contains_key(target));
         let cache = self.cache(&bundle.identity);
         let mut changes = Vec::new();
         let mut state = State {
@@ -1033,6 +1073,22 @@ impl Service {
                 after: Some(Node::File(artifact.bytes)),
             });
         }
+        if !retired_missing_targets.is_empty() {
+            changes.push(Change {
+                path: self
+                    .home
+                    .join("state/legacy-handoff")
+                    .join(&handoff.identity)
+                    .join("retired-missing-targets.json"),
+                before: None,
+                after: Some(Node::File(encode(&json!({
+                    "schemaVersion": 1,
+                    "reason": "explicit-missing-root-retirement",
+                    "handoffIdentity": handoff.identity,
+                    "targets": retired_missing_targets,
+                }))?)),
+            });
+        }
         for file in handoff.retire {
             changes.push(Change {
                 path: file.path,
@@ -1045,11 +1101,22 @@ impl Service {
             before: None,
             after: Some(Node::File(encode(&state)?)),
         });
+        // Persist absence observations in the existing journal. Preflight and
+        // the final forward steps recheck them; recovery never deletes a root
+        // that appeared independently after preview or interruption.
+        for root in retired_missing_targets.values() {
+            changes.push(Change {
+                path: root.clone(),
+                before: None,
+                after: None,
+            });
+        }
         transaction::validate_plan(&self.home, &changes)?;
         Ok(AdoptionPlan {
             legacy_product: handoff.product,
             handoff_identity: handoff.identity,
             targets: allowed,
+            retired_missing_targets,
             changes,
         })
     }

@@ -104,6 +104,18 @@ Unsupported or ambiguous legacy state stops with evidence intact. There is no
 long-lived dual engine or automatic fallback. The former raw Python `machine`
 transport and arbitrary `harness --` passthrough are retired.
 
+To preserve an intentionally removed client, pass `--retire-missing openclaw`
+(or a comma-separated list of recorded target IDs) to both preview and adopt.
+Only explicitly selected targets whose entire independently resolved root is
+absent can be retired. Existing directories, files and links are refused; a root
+that reappears after preview also blocks apply. Other recorded targets are adopted
+normally. The old receipts and an explicit retirement decision are archived under
+`state/legacy-handoff/<identity>/`; the Rust receipt excludes retired targets.
+Absence guards share the existing transaction journal. If a root reappears during
+an interrupted transaction, recovery stops with the journal and user files intact
+for inspection. Never remove that root merely to force recovery. Retirement does
+not enable hooks or remove historical logs or the immutable installation receipt.
+
 ## Contributor checks
 
 Read [AGENTS.md](AGENTS.md) and the identifier-evolution policy before changing
