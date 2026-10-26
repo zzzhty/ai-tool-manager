@@ -32,15 +32,14 @@ jobs:
               keep = {'PATH', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP'}
               minimal = {k: v for k, v in os.environ.items() if k.upper() in keep}
               isolated = dict(HOME=str(root), USERPROFILE=str(root), APPDATA=str(root / 'appdata'), LOCALAPPDATA=str(root / 'localappdata'))
-              profiles = {'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'HOMEDRIVE', 'HOMEPATH'}
-              identity = {'USERNAME', 'USERDOMAIN', 'USERDOMAIN_ROAMINGPROFILE', 'LOGONSERVER'}
               groups = [
-                  ('inherited', dict(os.environ)),
-                  ('inherited-isolated', dict(os.environ) | isolated),
-                  ('minimal-host-profile', minimal | {k: v for k, v in os.environ.items() if k.upper() in profiles}),
-                  ('minimal-host-identity', minimal | {k: v for k, v in os.environ.items() if k.upper() in identity} | isolated),
+                  ('computer-name', {'COMPUTERNAME'}),
+                  ('system-drive', {'SYSTEMDRIVE'}),
+                  ('machine-runtime', {'OS', 'SYSTEMDRIVE', 'COMPUTERNAME', 'PUBLIC', 'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE', 'PROCESSOR_IDENTIFIER', 'PROCESSOR_LEVEL', 'PROCESSOR_REVISION', 'COMMONPROGRAMFILES', 'COMMONPROGRAMFILES(X86)', 'COMMONPROGRAMW6432'}),
+                  ('powershell-runtime', {k.upper() for k in os.environ if k.upper().startswith(('PS', 'POWERSHELL', 'DOTNET', 'COMPLUS'))}),
               ]
-              for label, env in groups:
+              for label, keys in groups:
+                  env = minimal | {k: v for k, v in os.environ.items() if k.upper() in keys} | isolated
                   for junction in (False,):
                       destination = root / (label + ' target')
                       destination.mkdir(exist_ok=True)
