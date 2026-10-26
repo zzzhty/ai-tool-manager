@@ -888,50 +888,24 @@ class InstallerTests(unittest.TestCase):
                 self.assertNotIn("Traceback", stderr.getvalue())
 
 
-@unittest.skipUnless(
-    os.name == "nt" and shutil.which("powershell.exe"),
-    "Windows PowerShell wrapper test",
-)
-class PowerShellInstallerWrapperTests(unittest.TestCase):
-    def test_python_failure_is_reported_without_a_powershell_exception(self) -> None:
-        environment = dict(os.environ)
-        environment["ATM_BOOTSTRAP_PYTHON"] = sys.executable
-        result = subprocess.run(
-            [
-                shutil.which("powershell.exe") or "powershell.exe",
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                str(REPO_ROOT / "install.ps1"),
-                "-MigrateMarketplace",
-                "--home",
-                "relative-manager-home",
-            ],
-            cwd=REPO_ROOT,
-            env=environment,
-            capture_output=True,
-            text=True,
-        )
-
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn(
-            "error: ATM_HOME must be an absolute path",
-            result.stderr,
-        )
-        self.assertIn("installation failed with exit code", result.stderr)
-        self.assertNotIn("\x1b", result.stderr)
-        self.assertNotIn("Exception:", result.stderr)
-        self.assertNotIn("At ", result.stderr)
-
-    def test_wrapper_uses_console_color_only_for_interactive_errors(self) -> None:
-        script = (REPO_ROOT / "install.ps1").read_text(encoding="utf-8")
-        self.assertIn("function Write-AccentError", script)
-        self.assertIn("[Console]::IsErrorRedirected", script)
-        self.assertIn("[Console]::ForegroundColor", script)
-        self.assertIn("Test-Path Env:NO_COLOR", script)
-        self.assertIn("[switch]$MigrateMarketplace", script)
-        self.assertIn('$forwardedInstallerArguments += "--migrate-marketplace"', script)
+class InstallerEntrypointErrorTests(unittest.TestCase):
+    def test_invalid_home_is_reported_before_mutation_without_a_traceback(self) -> None:
+        # install.ps1 was retired during embedding. Keep the error boundary at
+        # the retained Python entry point; the shipped atm CLI is exercised by
+        # scripts/Test-Distribution.py on all three native platforms.
+        with tempfile.TemporaryDirectory() as temporary:
+            environment = dict(os.environ, HOME=temporary, USERPROFILE=temporary)
+            result = subprocess.run(
+                [sys.executable, str(REPO_ROOT / "scripts/install_engine.py"),
+                 "--migrate-marketplace", "--home", "relative-manager-home"],
+                cwd=temporary, env=environment, capture_output=True, text=True,
+                timeout=30,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("error: ATM_HOME must be an absolute path", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+            self.assertNotIn("\x1b", result.stderr)
+            self.assertEqual(list(Path(temporary).iterdir()), [])
 
 
 if __name__ == "__main__":

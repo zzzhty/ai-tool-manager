@@ -46,6 +46,10 @@ def main():
             return result
 
         run("help")
+        invalid = run("harness", "bootstrap", "--home", "relative-manager-home", success=False)
+        assert invalid.returncode == 1 and "CLI_ARGUMENT" in invalid.stderr
+        assert not invalid.stdout and "\x1b" not in invalid.stderr and "Exception:" not in invalid.stderr
+        assert not home.exists() and not (root / "relative-manager-home").exists()
         run("list", "skills", "--json")
         source = package / "harness"
         hidden = package / "hidden-harness"

@@ -36,6 +36,7 @@ registry、agents 的变更，marker 相等也无法证明目标未漂移；这�
 - 发布包验收发现并修复了嵌入式安装写收据仍访问 Git HEAD 的缺陷。完整 Python 回归及最终原生包复验进行中。
 - 源清单与凭据模式审计通过（393 文件）；Linux 独立真实 Secret Service 创建/重启后重新打开通过。
 - 首轮 CI `40281106230` 的 core 通过。Python Linux 37 项失败已定位为 fixture commit 后的 Git 自动后台维护改写 `.git`，仅在 fixture 创建时禁止自动维护，完整快照断言保留。macOS 新 fixture 权限错误改用 0600 创建，保留生产安全权限检查。
+- 原 Windows Python CI 的两项测试仍调用已移除的 `install.ps1`。将错误处理/写入前路径拒绝的行为断言移到现存 Python 入口及三平台发布 CLI；移除已无归属入口的 PowerShell 颜色实现断言，不跳过现存安全行为测试。
 - Windows/macOS 与修正后 Python CI 结果待补；不将本地 Linux 通过等同于跨平台通过。
 
 本页记录集成范围及后续方案，不代表稳定发布或平台测试已经通过。实际结果以目标
