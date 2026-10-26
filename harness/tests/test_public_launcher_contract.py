@@ -40,6 +40,10 @@ class PublicLauncherContracts(unittest.TestCase):
                           ("commit", "--quiet", "-m", "fixture")):
             subprocess.run(["git", "-C", str(self.repo),
                             "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                            # A recent Git can detach auto-maintenance after commit.
+                            # Keep fixture creation quiescent before the full-tree
+                            # read-only snapshot; do not exclude Git state from it.
+                            "-c", "maintenance.auto=false", "-c", "gc.auto=0",
                             *arguments], check=True)
         venv.EnvBuilder(with_pip=False, system_site_packages=True).create(self.home / "venv")
         installer.write_launchers(home=self.home, repo=self.repo, dry_run=False)
@@ -87,7 +91,7 @@ class PublicLauncherContracts(unittest.TestCase):
         after = self.snapshot(lock)
         changed = [path for path in sorted(before.keys() | after.keys())
                    if before.get(path) != after.get(path)]
-        self.assertEqual(changed, [], "read-only command changed paths: " + repr(changed))
+        self.assertEqual(len(changed), 0, f"read-only command changed {len(changed)} paths: {changed[:20]!r}")
 
     def test_help_and_abbreviations_do_not_write(self):
         before = self.snapshot()

@@ -24,11 +24,20 @@ fn failed_configuration_is_lazy_retryable_and_does_not_block_skills() {
     session.invalidate();
     assert!(!directory.exists());
     storage::ensure_directory(&directory).unwrap();
-    fs::write(
-        directory.join(storage::vault_filename()),
-        b"TEST_ONLY_unavailable",
-    )
-    .unwrap();
+    {
+        use std::io::Write;
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options
+            .open(directory.join(storage::vault_filename()))
+            .unwrap();
+        file.write_all(b"TEST_ONLY_unavailable").unwrap();
+    }
     assert_eq!(session.get().err().unwrap().code, "STORAGE_UNAVAILABLE");
     let skills = SkillsService::new(temporary.path().into(), temporary.path().join("trash"))
         .with_manager_home(None);

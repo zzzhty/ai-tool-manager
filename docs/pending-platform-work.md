@@ -34,7 +34,9 @@ registry、agents 的变更，marker 相等也无法证明目标未漂移；这�
 - 引擎 484 项（6 skip）、Watcher 87 项（3 skip）、Workflow 96 项通过；插件 generation 检查通过，未更改插件包身份。
 - Linux 原生 WebKit GUI 通过；解压发布包在临时 home 完成真实 bootstrap、ZCode 安装、引擎脚本升级、同步漂移修复、本地投影及收据/配置保留验收。
 - 发布包验收发现并修复了嵌入式安装写收据仍访问 Git HEAD 的缺陷。完整 Python 回归及最终原生包复验进行中。
-- Windows/macOS 的 CI 结果与源清单检查待补；不将本地 Linux 通过等同于跨平台通过。
+- 源清单与凭据模式审计通过（393 文件）；Linux 独立真实 Secret Service 创建/重启后重新打开通过。
+- 首轮 CI `40281106230` 的 core 通过。Python Linux 37 项失败已定位为 fixture commit 后的 Git 自动后台维护改写 `.git`，仅在 fixture 创建时禁止自动维护，完整快照断言保留。macOS 新 fixture 权限错误改用 0600 创建，保留生产安全权限检查。
+- Windows/macOS 与修正后 Python CI 结果待补；不将本地 Linux 通过等同于跨平台通过。
 
 本页记录集成范围及后续方案，不代表稳定发布或平台测试已经通过。实际结果以目标
 提交的测试输出和 CI 为准；未执行与准入受阻均不能算作通过。
