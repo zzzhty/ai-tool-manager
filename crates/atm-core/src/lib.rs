@@ -1,6 +1,9 @@
 //! Local-key core. Public views never contain saved keys or configuration bytes.
 pub mod batch;
 mod error;
+pub mod harness;
+pub mod harness_embed;
+pub mod harness_machine;
 pub mod jsonc;
 #[cfg(target_os = "linux")]
 pub mod linux;
@@ -9,8 +12,6 @@ pub mod macos;
 #[cfg(any(target_os = "macos", all(test, target_os = "linux")))]
 mod macos_keychain;
 mod model;
-pub mod omh;
-pub mod omh_machine;
 pub mod projection;
 pub mod skills;
 pub mod storage;

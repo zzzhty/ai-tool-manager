@@ -120,10 +120,10 @@ fn explicit_roots_ignore_inherited_overrides() {
         .env("USERPROFILE", child_home.path())
         .env("XDG_DATA_HOME", child_home.path().join("data"))
         .env("LOCALAPPDATA", child_home.path().join("data"))
-        .env("OH_MY_HARNESS_HOME", child_home.path().join("omh"))
-        .env("LKM_SKILLS_LIVE", "0")
-        .env("LKM_OMH_LIVE", "0")
-        .env_remove("ATM_TEST_OMH_CHECKOUT");
+        .env("ATM_HOME", child_home.path().join("harness"))
+        .env("ATM_SKILLS_LIVE", "0")
+        .env("ATM_ENGINE_LIVE", "0")
+        .env_remove("ATM_TEST_ENGINE_CHECKOUT");
     for key in [
         "CLAUDE_CONFIG_DIR",
         "COPILOT_HOME",
@@ -136,6 +136,24 @@ fn explicit_roots_ignore_inherited_overrides() {
         fs::create_dir(&path).unwrap();
         fs::write(path.join("sentinel"), "TEST_ONLY untouched").unwrap();
         command.env(key, path);
+    }
+    #[cfg(unix)]
+    {
+        // A forked child inherits a copy of every open descriptor, so spawning
+        // this binary while other parallel tests hold advisory locks pins those
+        // locks until exec and makes their next acquisition fail with VAULT_BUSY.
+        // Close the inherited descriptors before exec to keep the spawn inert.
+        use std::os::unix::process::CommandExt;
+        unsafe {
+            command.pre_exec(|| {
+                if libc::close_range(3, libc::c_uint::MAX, 0) != 0 {
+                    for fd in 3..1024 {
+                        libc::close(fd);
+                    }
+                }
+                Ok(())
+            });
+        }
     }
     let output = command.output().unwrap();
     assert!(
@@ -523,7 +541,7 @@ fn invalid_names_duplicate_sources_and_missing_targets_fail_closed() {
 // Explicit live check against the real environment; read-only, opt-in.
 #[test]
 fn live_projection_check_when_explicitly_requested() {
-    if std::env::var("LKM_SKILLS_LIVE")
+    if std::env::var("ATM_SKILLS_LIVE")
         .map(|value| value != "1")
         .unwrap_or(true)
     {
@@ -595,7 +613,7 @@ fn registry_lock_blocks_another_instance() {
 
 #[cfg(unix)]
 #[test]
-fn force_refresh_never_replaces_foreign_or_omh_link() {
+fn force_refresh_never_replaces_foreign_or_engine_link() {
     let f = fixture();
     let source = write_skill(f.sources.path(), "source");
     f.registry
@@ -603,10 +621,10 @@ fn force_refresh_never_replaces_foreign_or_omh_link() {
         .unwrap();
     let target = zcode_root(&f).join("owned");
     fs::remove_file(&target).unwrap();
-    let omh = write_skill(f.home.path(), ".oh-my-harness");
-    symlink(&omh, &target).unwrap();
+    let harness = write_skill(f.home.path(), ".atm");
+    symlink(&harness, &target).unwrap();
     assert!(f.registry.refresh(Some("owned"), true).is_err());
-    assert_eq!(fs::read_link(&target).unwrap(), omh);
+    assert_eq!(fs::read_link(&target).unwrap(), harness);
 }
 
 #[cfg(windows)]
@@ -706,15 +724,15 @@ fn native_install_cannot_occupy_missing_registered_projection() {
 }
 
 #[test]
-fn publish_cannot_adopt_omh_canonical_source() {
+fn publish_cannot_adopt_engine_canonical_source() {
     let f = fixture();
-    let source = write_skill(&f.home.path().join(".oh-my-harness/repo"), "source");
+    let source = write_skill(&f.home.path().join(".atm/repo"), "source");
     assert_eq!(
         f.registry
             .publish(&source, "copy", &["zcode".into()])
             .unwrap_err()
             .code,
-        "SKILLS_OMH_LOCKED"
+        "SKILLS_ENGINE_LOCKED"
     );
 }
 

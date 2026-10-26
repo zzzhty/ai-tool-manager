@@ -5,10 +5,9 @@ macOS 使用 Darwin 文件系统接口和 Security.framework，不复用 Linux �
 
 ## 存储与兼容边界
 
-数据目录使用 `$HOME/Library/Application Support/LocalKeyManager`，应用身份保持
-`com.localkeymanager.desktop`。macOS 主密钥的 service/account 固定为
-`com.localkeymanager.desktop.storage.v1` / `macos-aes-gcm-master-v1`；这是运行时兼容标识。
-`vault.lkmvault`、`templates.lkmvault` 和加密备份使用 AES-256-GCM，认证头为
+数据目录使用 `$HOME/Library/Application Support/atm`；macOS 主密钥的 service/account 固定为
+`com.ai-tool-manager.desktop.storage.v1` / `macos-aes-gcm-master-v1`。
+`vault.atmvault`、`templates.atmvault` 和加密备份使用 AES-256-GCM，认证头为
 `LKM-MACOS-V1\0`。Linux/Windows 既有身份与格式不变；不承诺跨电脑或跨平台解密。
 
 读取不创建 Keychain 条目。初始化必须明确确认；缺失、重复、无效、锁定、拒绝访问及
@@ -29,7 +28,8 @@ ACL、资源叉或超出预算的元数据。内容、文件身份和时间戳�
 替换之间仍有外部写入竞态，不保证跨文件事务。APFS 大小写语义按文件身份处理。
 
 工具路径尊重 HOME 和各工具显式环境变量，不扫描登录凭据或 shell dotfiles。Codex
-可执行文件及帐号目录须由用户指定为绝对路径。OMH 仍是独立 CLI，按既有 machine
+可执行文件及帐号目录须由用户指定为绝对路径。harness 引擎已内置于 ATM（`atm harness`
+命令组；首次 bootstrap 需联网安装 Python 工具依赖），按既有 machine
 能力与明确确认调用；macOS 仅补 POSIX 进程组清理，不增加生命周期操作或后台轮询。
 
 ## 可复现入口
@@ -46,10 +46,10 @@ bash scripts/Verify-MacOS.sh
 `tauri.macos.conf.json` 与源生成图标保留应用包构建配置；包构建不是本入口的验证声明。
 
 Python 父进程只复制新构建的测试二进制至临时目录，以显式 `--demo`、临时 HOME/data/
-config/OMH 根启动，核对同一 PID 的 argv/env。真实 WebView/Rust IPC 覆盖遮罩预览、
+config/引擎根启动，核对同一 PID 的 argv/env。真实 WebView/Rust IPC 覆盖遮罩预览、
 明确确认、应用、取消/重放拒绝与整文件回滚；另一个无 capability 的窗口必须产生真实
 拒绝回执。控件点击等待 busy 解除；失败记录有限阶段并非零退出，不吞异常后等待超时。
 
 父进程独立观察磁盘原文→假新值→原文，核对两个 0600 加密备份和暂存清理，并清理
 受控进程组与临时数据。结果只含合成状态；不借助可能自动重启应用的 GUI 观察工具。
-CI 的 arm64 门禁不代表 Intel/universal 已测；额度和 OMH 测试不代表真实账户或安装已测。
+CI 的 arm64 门禁不代表 Intel/universal 已测；额度和引擎测试不代表真实账户或安装已测。

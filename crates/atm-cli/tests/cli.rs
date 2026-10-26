@@ -26,24 +26,15 @@ impl Env {
             ("USERPROFILE", self.home.path().to_path_buf()),
             ("XDG_DATA_HOME", self.data.path().to_path_buf()),
             ("LOCALAPPDATA", self.data.path().to_path_buf()),
-            (
-                "OH_MY_HARNESS_HOME",
-                self.home.path().join("test-oh-my-harness"),
-            ),
+            ("ATM_HOME", self.home.path().join("test-atm-harness")),
         ]
     }
 
     fn manager_data(&self) -> PathBuf {
         if cfg!(target_os = "macos") {
-            self.home
-                .path()
-                .join("Library/Application Support/LocalKeyManager")
+            self.home.path().join("Library/Application Support/atm")
         } else {
-            self.data.path().join(if cfg!(windows) {
-                "LocalKeyManager"
-            } else {
-                "local-key-manager"
-            })
+            self.data.path().join("atm")
         }
     }
 
@@ -134,8 +125,8 @@ fn publish_fixture(env: &Env, name: &str) {
     assert_ok(&atm(
         env,
         &[
-            "skills",
             "publish",
+            "skills",
             source.to_str().unwrap(),
             "--name",
             name,
@@ -150,14 +141,14 @@ fn full_publish_check_refresh_unproject_lifecycle_through_the_cli() {
     let env = Env::new();
     let source = write_skill(env.sources.path(), "my-skill");
     // Publish requires --name and at least one target.
-    let missing = atm(&env, &["skills", "publish", source.to_str().unwrap()]);
+    let missing = atm(&env, &["publish", "skills", source.to_str().unwrap()]);
     assert_code(&missing, 1);
     assert!(String::from_utf8_lossy(&missing.stderr).contains("CLI_ARGUMENT"));
     let ok = atm(
         &env,
         &[
-            "skills",
             "publish",
+            "skills",
             source.to_str().unwrap(),
             "--name",
             "cli-skill",
@@ -168,23 +159,23 @@ fn full_publish_check_refresh_unproject_lifecycle_through_the_cli() {
     assert_ok(&ok);
     assert!(String::from_utf8_lossy(&ok.stdout).contains("已投影：zcode/cli-skill"));
     // Inventory classifies and counts.
-    let list = atm(&env, &["skills", "inventory"]);
+    let list = atm(&env, &["list", "skills"]);
     assert_ok(&list);
     let text = String::from_utf8_lossy(&list.stdout);
     assert!(text.contains("ATM 投影"));
     assert!(text.contains("cli-skill"));
     assert!(text.contains("根不存在"));
     // Check passes; breaking the link fails check and refresh repairs it.
-    let check = atm(&env, &["skills", "check"]);
+    let check = atm(&env, &["check", "skills"]);
     assert_ok(&check);
     let link = env.home.path().join(".zcode/skills/cli-skill");
     remove_projection(&link);
-    let broken = atm(&env, &["skills", "check"]);
+    let broken = atm(&env, &["check", "skills"]);
     assert_code(&broken, 1);
-    let repaired = atm(&env, &["skills", "refresh"]);
+    let repaired = atm(&env, &["update", "skills"]);
     assert_ok(&repaired);
     assert!(link.join("SKILL.md").is_file());
-    let json = atm(&env, &["skills", "check", "--json"]);
+    let json = atm(&env, &["check", "skills", "--json"]);
     assert_ok(&json);
     let items = json_items(&json);
     assert_eq!(items.len(), 2);
@@ -192,17 +183,17 @@ fn full_publish_check_refresh_unproject_lifecycle_through_the_cli() {
     // Unproject removes the registry-recorded projection only.
     let unproject = atm(
         &env,
-        &["skills", "unproject", "cli-skill", "--from", "zcode"],
+        &["unproject", "skills", "cli-skill", "--from", "zcode"],
     );
     assert_ok(&unproject);
     assert!(!link.exists());
     assert!(env.canonical("cli-skill").join("SKILL.md").is_file());
     // Unpublish drains the rest and removes the canonical copy.
-    let unpublish = atm(&env, &["skills", "unpublish", "cli-skill"]);
+    let unpublish = atm(&env, &["unpublish", "skills", "cli-skill"]);
     assert_code(&unpublish, 1); // copilot projection still present
     let drained = atm(
         &env,
-        &["skills", "unpublish", "cli-skill", "--with-projections"],
+        &["unpublish", "skills", "cli-skill", "--with-projections"],
     );
     assert_ok(&drained);
     assert!(!env.home.path().join(".copilot/skills/cli-skill").exists());
@@ -216,10 +207,12 @@ fn install_uninstall_copy_and_trash_lifecycle_through_the_cli() {
     let install = atm(
         &env,
         &[
-            "skills",
             "install",
+            "skills",
             source.to_str().unwrap(),
+            "--to",
             "zcode",
+            "--name",
             "standalone",
         ],
     );
@@ -230,19 +223,19 @@ fn install_uninstall_copy_and_trash_lifecycle_through_the_cli() {
         .join(".zcode/skills/standalone/SKILL.md")
         .is_file());
     // Copy to another root; the second copy refuses on collision.
-    let copy = atm(&env, &["skills", "copy", "zcode", "standalone", "copilot"]);
+    let copy = atm(&env, &["copy", "skills", "zcode", "standalone", "copilot"]);
     assert_ok(&copy);
-    let collision = atm(&env, &["skills", "copy", "zcode", "standalone", "copilot"]);
+    let collision = atm(&env, &["copy", "skills", "zcode", "standalone", "copilot"]);
     assert_code(&collision, 1);
     assert!(String::from_utf8_lossy(&collision.stderr).contains("SKILLS_TAKEN"));
     // Uninstall to trash; trash listing; restore.
-    let uninstall = atm(&env, &["skills", "uninstall", "zcode", "standalone"]);
+    let uninstall = atm(&env, &["uninstall", "skills", "zcode", "standalone"]);
     assert_ok(&uninstall);
     assert!(!env.home.path().join(".zcode/skills/standalone").exists());
-    let trash = atm(&env, &["skills", "trash"]);
+    let trash = atm(&env, &["list", "skills", "--trash"]);
     assert_ok(&trash);
     assert!(String::from_utf8_lossy(&trash.stdout).contains("zcode/standalone"));
-    let restore = atm(&env, &["skills", "restore", "zcode/standalone"]);
+    let restore = atm(&env, &["restore", "skills", "zcode/standalone"]);
     assert_ok(&restore);
     assert!(env
         .home
@@ -250,10 +243,10 @@ fn install_uninstall_copy_and_trash_lifecycle_through_the_cli() {
         .join(".zcode/skills/standalone/SKILL.md")
         .is_file());
     // Purge path: uninstall again, then purge by id.
-    assert_ok(&atm(&env, &["skills", "uninstall", "zcode", "standalone"]));
-    let purge = atm(&env, &["skills", "purge", "zcode/standalone"]);
+    assert_ok(&atm(&env, &["uninstall", "skills", "zcode", "standalone"]));
+    let purge = atm(&env, &["purge", "skills", "zcode/standalone"]);
     assert_ok(&purge);
-    let trash = atm(&env, &["skills", "trash", "--json"]);
+    let trash = atm(&env, &["list", "skills", "--trash", "--json"]);
     assert_ok(&trash);
     assert!(String::from_utf8_lossy(&trash.stdout).trim() == "[]");
 }
@@ -266,7 +259,7 @@ fn unknown_commands_and_help_are_handled_without_touching_the_environment() {
     assert!(String::from_utf8_lossy(&unknown.stderr).contains("CLI_COMMAND"));
     let help = atm(&env, &["help"]);
     assert_ok(&help);
-    assert!(String::from_utf8_lossy(&help.stdout).contains("atm skills inventory"));
+    assert!(String::from_utf8_lossy(&help.stdout).contains("atm list skills"));
     // Bare invocation prints usage and exits successfully.
     let bare = atm(&env, &[]);
     assert_ok(&bare);
@@ -284,7 +277,7 @@ fn named_check_and_refresh_leave_other_sources_untouched() {
     let registry_before = fs::read(&registry_path).unwrap();
 
     remove_projection(&env.projection("beta"));
-    let healthy = atm(&env, &["skills", "check", "alpha", "--json"]);
+    let healthy = atm(&env, &["check", "skills", "alpha", "--json"]);
     assert_ok(&healthy);
     assert!(healthy.stderr.is_empty());
     let items = json_items(&healthy);
@@ -293,7 +286,7 @@ fn named_check_and_refresh_leave_other_sources_untouched() {
     assert_eq!(items[0]["status"], "ok");
 
     // A failed check still emits exactly one parseable JSON value on stdout.
-    let broken = atm(&env, &["skills", "check", "--json", "beta"]);
+    let broken = atm(&env, &["check", "skills", "--json", "beta"]);
     assert_code(&broken, 1);
     let items = json_items(&broken);
     assert_eq!(items.len(), 1);
@@ -301,7 +294,7 @@ fn named_check_and_refresh_leave_other_sources_untouched() {
     assert_eq!(items[0]["status"], "broken_link");
 
     remove_projection(&env.projection("alpha"));
-    let repaired = atm(&env, &["skills", "refresh", "alpha"]);
+    let repaired = atm(&env, &["update", "skills", "alpha"]);
     assert_ok(&repaired);
     assert!(env.projection("alpha").join("SKILL.md").is_file());
     assert!(fs::symlink_metadata(env.projection("beta")).is_err());
@@ -312,7 +305,7 @@ fn named_check_and_refresh_leave_other_sources_untouched() {
     let unrelated_file = env.projection("beta").join("unrelated.txt");
     fs::write(&unrelated_file, b"TEST_ONLY: preserve beta").unwrap();
     remove_projection(&env.projection("alpha"));
-    let forced = atm(&env, &["skills", "refresh", "alpha", "--force"]);
+    let forced = atm(&env, &["update", "skills", "alpha", "--force"]);
     assert_ok(&forced);
     assert!(env.projection("alpha").join("SKILL.md").is_file());
     assert_eq!(
@@ -333,13 +326,13 @@ fn named_check_and_refresh_leave_other_sources_untouched() {
         after.iter().find(|record| record["name"] == "beta"),
         before.iter().find(|record| record["name"] == "beta")
     );
-    assert_ok(&atm(&env, &["skills", "check", "alpha", "--json"]));
+    assert_ok(&atm(&env, &["check", "skills", "alpha", "--json"]));
 }
 
 #[test]
 fn empty_check_json_is_parseable_without_a_success_suffix() {
     let env = Env::new();
-    let output = atm(&env, &["skills", "check", "--json"]);
+    let output = atm(&env, &["check", "skills", "--json"]);
     assert_ok(&output);
     assert!(output.stderr.is_empty());
     assert!(json_items(&output).is_empty());
@@ -347,20 +340,20 @@ fn empty_check_json_is_parseable_without_a_success_suffix() {
 
 #[test]
 fn inventory_and_check_create_storage_compatible_shared_directories() {
-    for first_command in ["inventory", "check"] {
+    for first_command in ["list", "check"] {
         let env = Env::new();
         assert!(!env.manager_data().exists());
-        assert_ok(&atm(&env, &["skills", first_command, "--json"]));
+        assert_ok(&atm(&env, &[first_command, "skills", "--json"]));
         assert_private_directory(&env.manager_data());
 
         // Either constructor may run first; the other must accept its shared
         // data directory without changing permissions or breaking vault access.
-        let second_command = if first_command == "inventory" {
+        let second_command = if first_command == "list" {
             "check"
         } else {
-            "inventory"
+            "list"
         };
-        assert_ok(&atm(&env, &["skills", second_command, "--json"]));
+        assert_ok(&atm(&env, &[second_command, "skills", "--json"]));
         for path in [
             env.manager_data(),
             env.manager_data().join("skills-trash"),
@@ -401,8 +394,8 @@ fn child_cli_respects_registry_lock_and_recovers_after_release() {
     // attempts both a read and a mutating repair. Neither should bypass it.
     let lock = atm_core::windows::open_lock(&registry_root.join("registry.lock")).unwrap();
     for arguments in [
-        &["skills", "check", "alpha", "--json"][..],
-        &["skills", "refresh", "alpha", "--force"][..],
+        &["check", "skills", "alpha", "--json"][..],
+        &["update", "skills", "alpha", "--force"][..],
     ] {
         let output = atm(&env, arguments);
         assert_code(&output, 1);
@@ -420,9 +413,9 @@ fn child_cli_respects_registry_lock_and_recovers_after_release() {
     }
     drop(lock);
 
-    assert_ok(&atm(&env, &["skills", "refresh", "alpha"]));
+    assert_ok(&atm(&env, &["update", "skills", "alpha"]));
     assert!(env.projection("alpha").join("SKILL.md").is_file());
-    let output = atm(&env, &["skills", "check", "alpha", "--json"]);
+    let output = atm(&env, &["check", "skills", "alpha", "--json"]);
     assert_ok(&output);
     let items = json_items(&output);
     assert_eq!(items.len(), 1);
@@ -437,65 +430,85 @@ fn invalid_arguments_fail_before_any_environment_changes() {
         &["help", "extra"],
         &["--help", "extra"],
         &["skills"],
-        &["skills", "inventory", "extra"],
-        &["skills", "inventory", "--force"],
-        &["skills", "inventory", "--json", "--json"],
-        &["skills", "check", "alpha", "beta"],
-        &["skills", "check", "--name", "alpha"],
-        &["skills", "check", "alpha", "--force"],
-        &["skills", "check", "-x"],
-        &["skills", "check", ""],
-        &["skills", "refresh", "alpha", "beta", "--force"],
-        &["skills", "refresh", "--name", "alpha"],
-        &["skills", "refresh", "alpha", "--json"],
-        &["skills", "refresh", "--force", "--force"],
+        &["list", "skills", "extra"],
+        &["list", "skills", "--force"],
+        &["list", "skills", "--json", "--json"],
+        &["check", "skills", "alpha", "beta"],
+        &["check", "skills", "--name", "alpha"],
+        &["check", "skills", "alpha", "--force"],
+        &["check", "skills", "-x"],
+        &["check", "skills", ""],
+        &["update", "skills", "alpha", "beta", "--force"],
+        &["update", "skills", "--name", "alpha"],
+        &["update", "skills", "alpha", "--json"],
+        &["update", "skills", "--force", "--force"],
         &[
-            "skills", "publish", "source", "extra", "--name", "alpha", "--to", "zcode",
+            "publish", "skills", "source", "extra", "--name", "alpha", "--to", "zcode",
         ],
-        &["skills", "publish", "source", "--name", "alpha"],
-        &["skills", "publish", "source", "--name", "--to", "zcode"],
-        &["skills", "publish", "source", "--name", "", "--to", "zcode"],
+        &["publish", "skills", "source", "--name", "alpha"],
+        &["publish", "skills", "source", "--name", "--to", "zcode"],
+        &["publish", "skills", "source", "--name", "", "--to", "zcode"],
         &[
-            "skills", "publish", "source", "--name", "alpha", "--name", "beta", "--to", "zcode",
+            "publish", "skills", "source", "--name", "alpha", "--name", "beta", "--to", "zcode",
         ],
-        &["skills", "publish", "source", "--name", "alpha", "--to", ""],
+        &["publish", "skills", "source", "--name", "alpha", "--to", ""],
         &[
-            "skills", "publish", "source", "--name", "alpha", "--to", "zcode,",
+            "publish", "skills", "source", "--name", "alpha", "--to", "zcode,",
         ],
         &[
-            "skills",
             "publish",
+            "skills",
             "source",
             "--name",
             "alpha",
             "--to",
             "zcode,zcode",
         ],
-        &["skills", "project", "alpha", "extra", "--to", "zcode"],
-        &["skills", "project", "alpha", "--to", "zcode,copilot"],
+        &["project", "skills", "alpha", "extra", "--to", "zcode"],
+        &["project", "skills", "alpha", "--to", "zcode,copilot"],
         &[
-            "skills", "project", "alpha", "--to", "zcode", "--to", "copilot",
+            "project", "skills", "alpha", "--to", "zcode", "--to", "copilot",
         ],
-        &["skills", "project", "alpha", "--from", "zcode"],
-        &["skills", "unproject", "alpha", "extra", "--from", "zcode"],
-        &["skills", "unproject", "alpha", "--to", "zcode"],
-        &["skills", "unproject", "alpha", "--from"],
+        &["project", "skills", "alpha", "--from", "zcode"],
+        &["unproject", "skills", "alpha", "extra", "--from", "zcode"],
+        &["unproject", "skills", "alpha", "--to", "zcode"],
+        &["unproject", "skills", "alpha", "--from"],
         &[
-            "skills",
             "unpublish",
+            "skills",
             "alpha",
             "extra",
             "--with-projections",
         ],
-        &["skills", "unpublish", "alpha", "--force"],
-        &["skills", "install", "source", "zcode", "alpha", "extra"],
-        &["skills", "install", "source", "zcode", "--name", "alpha"],
-        &["skills", "uninstall", "zcode", "alpha", "extra"],
-        &["skills", "copy", "zcode", "alpha", "copilot", "extra"],
-        &["skills", "trash", "extra"],
-        &["skills", "restore", "zcode/alpha", "extra"],
-        &["skills", "purge", "zcode/alpha", "extra"],
-        &["skills", "purge", "zcode/alpha", "--force"],
+        &["unpublish", "skills", "alpha", "--force"],
+        &["install", "skills", "source", "zcode", "alpha", "extra"],
+        &["install", "skills", "source", "zcode", "--name", "alpha"],
+        &["uninstall", "skills", "zcode", "alpha", "extra"],
+        &["copy", "skills", "zcode", "alpha", "copilot", "extra"],
+        &["list", "skills", "--trash", "extra"],
+        &["restore", "skills", "zcode/alpha", "extra"],
+        &["purge", "skills", "zcode/alpha", "extra"],
+        &["purge", "skills", "zcode/alpha", "--force"],
+        &[
+            "install",
+            "skills",
+            "src",
+            "--to",
+            "zcode",
+            "--harness",
+            "codex",
+        ],
+        &["install", "skills", "--harness", "codex,"],
+        &["check", "skills", "--strict"],
+        &["check", "skills", "alpha", "--harness", "codex"],
+        &["repair", "skills"],
+        &["repair", "skills", "--harness", ""],
+        &["install", "hooks"],
+        &["install", "hooks", "--harness", "zcode"],
+        &["install", "hooks", "--harness", "codex", "extra"],
+        &["harness", "--"],
+        &["harness", "bootstrap", "--home", "relative/path"],
+        &["harness", "status", "extra"],
     ];
     for arguments in invalid {
         let output = atm(&env, arguments);
@@ -522,7 +535,7 @@ fn invalid_forced_refresh_does_not_repair_any_projection() {
     let registry_path = env.manager_data().join("skills-sources/registry.json");
     let registry_before = fs::read(&registry_path).unwrap();
 
-    let output = atm(&env, &["skills", "refresh", "alpha", "beta", "--force"]);
+    let output = atm(&env, &["update", "skills", "alpha", "beta", "--force"]);
     assert_code(&output, 1);
     assert!(String::from_utf8_lossy(&output.stderr).contains("CLI_ARGUMENT"));
     assert!(fs::symlink_metadata(env.projection("alpha")).is_err());
@@ -535,7 +548,7 @@ fn refresh_reports_nonzero_when_the_canonical_source_is_missing() {
     let env = Env::new();
     publish_fixture(&env, "missing");
     fs::remove_dir_all(env.canonical("missing")).unwrap();
-    let output = atm(&env, &["skills", "refresh", "missing"]);
+    let output = atm(&env, &["update", "skills", "missing"]);
     assert_code(&output, 1);
     assert!(String::from_utf8_lossy(&output.stdout).contains("断链"));
     assert!(String::from_utf8_lossy(&output.stderr).contains("PROJECTION_BROKEN"));
@@ -547,7 +560,7 @@ fn refresh_reports_nonzero_for_unforced_edits_and_unknown_ownership() {
     let env = Env::new();
     publish_fixture(&env, "owned");
     fs::write(env.projection("owned").join("SKILL.md"), b"TEST_ONLY_edit").unwrap();
-    let output = atm(&env, &["skills", "refresh", "owned"]);
+    let output = atm(&env, &["update", "skills", "owned"]);
     assert_code(&output, 1);
     assert!(String::from_utf8_lossy(&output.stderr).contains("PROJECTION_BROKEN"));
     assert_eq!(
@@ -557,8 +570,8 @@ fn refresh_reports_nonzero_for_unforced_edits_and_unknown_ownership() {
     fs::rename(env.projection("owned"), env.home.path().join("retired")).unwrap();
     write_skill(&env.home.path().join(".zcode/skills"), "owned");
     for arguments in [
-        &["skills", "refresh", "owned"][..],
-        &["skills", "refresh", "owned", "--force"][..],
+        &["update", "skills", "owned"][..],
+        &["update", "skills", "owned", "--force"][..],
     ] {
         let output = atm(&env, arguments);
         assert_code(&output, 1);
@@ -574,19 +587,21 @@ fn environment_override_cannot_expose_or_change_shared_agent_skills() {
     assert_ok(&atm(
         &env,
         &[
-            "skills",
             "install",
+            "skills",
             source.to_str().unwrap(),
+            "--to",
             "codex",
+            "--name",
             "restore-me",
         ],
     ));
-    assert_ok(&atm(&env, &["skills", "uninstall", "codex", "restore-me"]));
+    assert_ok(&atm(&env, &["uninstall", "skills", "codex", "restore-me"]));
     assert_ok(&atm(
         &env,
         &[
-            "skills",
             "publish",
+            "skills",
             source.to_str().unwrap(),
             "--name",
             "owned",
@@ -605,7 +620,7 @@ fn environment_override_cannot_expose_or_change_shared_agent_skills() {
             .output()
             .unwrap()
     };
-    let output = run(&["skills", "inventory", "--json"]);
+    let output = run(&["list", "skills", "--json"]);
     assert_ok(&output);
     let inventory: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert!(inventory["roots"]
@@ -613,32 +628,34 @@ fn environment_override_cannot_expose_or_change_shared_agent_skills() {
         .unwrap()
         .iter()
         .all(|r| r["id"] != "codex"));
-    let check = run(&["skills", "check", "owned", "--json"]);
+    let check = run(&["check", "skills", "owned", "--json"]);
     assert_code(&check, 1);
     assert_eq!(json_items(&check)[0]["status"], "broken_link");
     for args in [
         vec![
-            "skills",
             "install",
+            "skills",
             source.to_str().unwrap(),
+            "--to",
             "codex",
+            "--name",
             "new",
         ],
-        vec!["skills", "copy", "codex", "kept", "zcode"],
-        vec!["skills", "uninstall", "codex", "kept"],
-        vec!["skills", "restore", "codex/restore-me"],
+        vec!["copy", "skills", "codex", "kept", "zcode"],
+        vec!["uninstall", "skills", "codex", "kept"],
+        vec!["restore", "skills", "codex/restore-me"],
         vec![
-            "skills",
             "publish",
+            "skills",
             source.to_str().unwrap(),
             "--name",
             "new",
             "--to",
             "codex",
         ],
-        vec!["skills", "refresh", "owned", "--force"],
-        vec!["skills", "unproject", "owned", "--from", "codex", "--force"],
-        vec!["skills", "unpublish", "owned", "--with-projections"],
+        vec!["update", "skills", "owned", "--force"],
+        vec!["unproject", "skills", "owned", "--from", "codex", "--force"],
+        vec!["unpublish", "skills", "owned", "--with-projections"],
     ] {
         let output = run(&args);
         assert_code(&output, 1);
@@ -653,10 +670,253 @@ fn environment_override_cannot_expose_or_change_shared_agent_skills() {
         .join(".codex/skills/owned/SKILL.md")
         .is_file());
     assert_ok(&run(&[
-        "skills",
         "install",
+        "skills",
         source.to_str().unwrap(),
+        "--to",
         "zcode",
+        "--name",
         "ordinary",
     ]));
+}
+
+// ---------------------------------------------------------------------------
+// Embedded engine, watcher hook and maintenance-group delegation (unix fakes)
+// ---------------------------------------------------------------------------
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod engine_delegation {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn manager_home(env: &Env) -> PathBuf {
+        env.home.path().join("test-atm-harness")
+    }
+
+    fn fake_venv_python(env: &Env, assertions: &str, exit_code: i32) -> PathBuf {
+        let python = manager_home(env).join("venv/bin/python");
+        fs::create_dir_all(python.parent().unwrap()).unwrap();
+        fs::write(
+            &python,
+            format!("#!/bin/sh\n{assertions}\nexit {exit_code}\n"),
+        )
+        .unwrap();
+        fs::set_permissions(&python, fs::Permissions::from_mode(0o700)).unwrap();
+        python
+    }
+
+    fn touch_engine_entry(env: &Env) {
+        let cli = manager_home(env).join("repo/scripts/engine.py");
+        fs::create_dir_all(cli.parent().unwrap()).unwrap();
+        fs::write(&cli, b"# TEST_ONLY stub\n").unwrap();
+    }
+
+    fn touch_watcher_cli(env: &Env) {
+        let watcher = manager_home(env).join("repo/plugins/watcher/scripts/watcher");
+        fs::create_dir_all(watcher.parent().unwrap()).unwrap();
+        fs::write(&watcher, b"# TEST_ONLY stub\n").unwrap();
+    }
+
+    #[test]
+    fn engine_install_delegates_fixed_argv_and_propagates_exit_code() {
+        let env = Env::new();
+        touch_engine_entry(&env);
+        let home = manager_home(&env);
+        let cli = home.join("repo/scripts/engine.py").display().to_string();
+        let home = home.display().to_string();
+        fake_venv_python(
+            &env,
+            &format!(
+                r#"test "$1" = "{cli}" || exit 9
+test "$2" = "--home" || exit 9
+test "$3" = "{home}" || exit 9
+test "$4" = "install" || exit 9
+test "$5" = "codex" || exit 9
+test "$6" = "zcode" || exit 9
+test "$#" = 6 || exit 9"#
+            ),
+            7,
+        );
+        let output = atm(&env, &["install", "skills", "--harness", "codex,zcode"]);
+        assert_code(&output, 7);
+    }
+
+    #[test]
+    fn engine_verbs_map_to_refresh_check_doctor_and_repair_no_path() {
+        let env = Env::new();
+        touch_engine_entry(&env);
+        for (arguments, operation, extra) in [
+            (
+                vec!["update", "skills", "--harness", "codex"],
+                "refresh",
+                "",
+            ),
+            (vec!["check", "skills", "--harness", "codex"], "check", ""),
+            (
+                vec!["check", "skills", "--harness", "codex", "--strict"],
+                "doctor",
+                "",
+            ),
+            (
+                vec!["repair", "skills", "--harness", "codex"],
+                "repair",
+                "--no-path",
+            ),
+        ] {
+            // Recreate per case: assertions differ per operation.
+            let mut script = format!(
+                r#"test "$4" = "{operation}" || exit 9
+test "$5" = "codex" || exit 9"#
+            );
+            if !extra.is_empty() {
+                script.push_str(&format!(
+                    "\ntest \"${{#}}\" = 6 || exit 9\ntest \"$6\" = \"{extra}\" || exit 9"
+                ));
+            } else {
+                script.push_str("\ntest \"$#\" = 5 || exit 9");
+            }
+            script.push_str("\ntest \"$3\" != \"\" || exit 9");
+            fake_venv_python(&env, &script, 0);
+            let output = atm(&env, &arguments);
+            assert_ok(&output);
+        }
+    }
+
+    #[test]
+    fn unbootstrapped_engine_reports_bootstrap_guidance() {
+        let env = Env::new();
+        let output = atm(&env, &["install", "skills", "--harness", "codex"]);
+        assert_code(&output, 1);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("HARNESS_NOT_INSTALLED"), "stderr: {stderr}");
+        assert!(stderr.contains("atm harness bootstrap"), "stderr: {stderr}");
+    }
+
+    #[test]
+    fn hooks_delegate_to_watcher_cli_with_apply_and_python() {
+        let env = Env::new();
+        touch_engine_entry(&env);
+        touch_watcher_cli(&env);
+        let home = manager_home(&env);
+        let watcher = home
+            .join("repo/plugins/watcher/scripts/watcher")
+            .display()
+            .to_string();
+        let python = home.join("venv/bin/python").display().to_string();
+        let repo = format!("{}/repo", home.display());
+        fake_venv_python(
+            &env,
+            &format!(
+                r#"test "$1" = "-B" || exit 9
+test "$2" = "{watcher}" || exit 9
+test "$3" = "skill" || exit 9
+test "$4" = "install-hook" || exit 9
+test "$5" = "--apply" || exit 9
+test "$6" = "--python" || exit 9
+test "$7" = "{python}" || exit 9
+test "$8" = "--repo-root" || exit 9
+test "$9" = "{repo}" || exit 9
+test "$#" = 9 || exit 9"#
+            ),
+            0,
+        );
+        assert_ok(&atm(&env, &["install", "hooks", "--harness", "codex"]));
+    }
+
+    #[test]
+    fn hooks_dry_run_omits_apply_and_check_maps_to_doctor() {
+        let env = Env::new();
+        touch_engine_entry(&env);
+        touch_watcher_cli(&env);
+        fake_venv_python(
+            &env,
+            r#"test "$4" = "install-hook" || exit 9
+test "$5" = "--python" || exit 9"#,
+            0,
+        );
+        assert_ok(&atm(
+            &env,
+            &["install", "hooks", "--harness", "codex", "--dry-run"],
+        ));
+        fake_venv_python(
+            &env,
+            r#"test "$4" = "uninstall-hook" || exit 9
+test "$5" = "--apply" || exit 9"#,
+            0,
+        );
+        assert_ok(&atm(&env, &["uninstall", "hooks", "--harness", "codex"]));
+        fake_venv_python(&env, r#"test "$4" = "doctor" || exit 9"#, 0);
+        assert_ok(&atm(&env, &["check", "hooks", "--harness", "codex"]));
+    }
+
+    #[test]
+    fn harness_bootstrap_runs_the_embed_materializer_via_base_python() {
+        let env = Env::new();
+        let sources = tempfile::tempdir().unwrap();
+        let embedded_path = sources.path().join("harness");
+        let script_path = embedded_path.join("scripts/atm_embed.py");
+        fs::create_dir_all(script_path.parent().unwrap()).unwrap();
+        fs::write(&script_path, b"# TEST_ONLY stub\n").unwrap();
+        fs::write(
+            script_path.parent().unwrap().join("engine.py"),
+            b"# TEST_ONLY stub\n",
+        )
+        .unwrap();
+        let embedded = embedded_path.display().to_string();
+        let script = script_path.display().to_string();
+        let base = sources.path().join("fake-python");
+        fs::write(
+            &base,
+            format!(
+                "#!/bin/sh\ntest \"$1\" = \"{script}\" || exit 9\ntest \"$2\" = \"bootstrap\" || exit 9\ntest \"$3\" = \"--source\" || exit 9\ntest \"$4\" = \"{embedded}\" || exit 9\ntest \"$5\" = \"--home\" || exit 9\ntest \"$6\" = \"{}\" || exit 9\ntest \"$#\" = 6 || exit 9\nexit 0\n",
+                manager_home(&env).display()
+            ),
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&base, fs::Permissions::from_mode(0o700)).unwrap();
+        let output = atm_command(&env, &["harness", "bootstrap"])
+            .env("ATM_BOOTSTRAP_PYTHON", &base)
+            .env("ATM_ENGINE_SOURCE", &embedded)
+            .output()
+            .unwrap();
+        assert_ok(&output);
+    }
+
+    #[test]
+    fn harness_passthrough_forwards_verbatim_and_bounds_argv() {
+        let env = Env::new();
+        touch_engine_entry(&env);
+        fake_venv_python(
+            &env,
+            r#"test "$4" = "machine" || exit 9
+test "$5" = "--protocol" || exit 9
+test "$6" = "1" || exit 9
+test "$7" = "status" || exit 9"#,
+            0,
+        );
+        assert_ok(&atm(
+            &env,
+            &["harness", "--", "machine", "--protocol", "1", "status"],
+        ));
+        // A passthrough --home stays rejected to keep one home source.
+        let rejected = atm(&env, &["harness", "--", "--home", "/tmp/x", "status"]);
+        assert_code(&rejected, 1);
+        // Argv bounds are enforced before spawning anything.
+        let mut many: Vec<String> = (0..70).map(|index| format!("arg{index}")).collect();
+        let mut arguments = vec!["harness".to_owned(), "--".to_owned()];
+        arguments.append(&mut many);
+        let strings: Vec<&str> = arguments.iter().map(String::as_str).collect();
+        let oversized = atm(&env, &strings);
+        assert_code(&oversized, 1);
+        assert!(String::from_utf8_lossy(&oversized.stderr).contains("CLI_ARGUMENT"));
+    }
+
+    #[test]
+    fn harness_unknown_subcommand_is_rejected_without_spawning() {
+        let env = Env::new();
+        let output = atm(&env, &["harness", "nope"]);
+        assert_code(&output, 1);
+        assert!(String::from_utf8_lossy(&output.stderr).contains("CLI_COMMAND"));
+    }
 }

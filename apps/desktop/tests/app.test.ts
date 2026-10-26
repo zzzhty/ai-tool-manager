@@ -32,11 +32,11 @@ const makePreview = async () => { await selectTarget(); click('preview-selected'
 beforeEach(async () => {
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
   api = {
-    initializeStorage: vi.fn().mockResolvedValue(undefined), configureCodexCli: vi.fn().mockResolvedValue(undefined), disconnectCodexCli: vi.fn().mockResolvedValue(undefined), queryCodexUsage: vi.fn(), queryGlmUsage: vi.fn(), omhDiagnose: vi.fn(), omhCapabilities: vi.fn(), omhExecute: vi.fn(), omhStatus: vi.fn(), skillsInventory: vi.fn(), skillsInstall: vi.fn(), skillsUninstall: vi.fn(), skillsRestore: vi.fn(), skillsPurge: vi.fn(), skillsCopy: vi.fn(), pickDirectory: vi.fn(),
+    initializeStorage: vi.fn().mockResolvedValue(undefined), configureCodexCli: vi.fn().mockResolvedValue(undefined), disconnectCodexCli: vi.fn().mockResolvedValue(undefined), queryCodexUsage: vi.fn(), queryGlmUsage: vi.fn(), harnessDiagnose: vi.fn(), harnessCapabilities: vi.fn(), harnessExecute: vi.fn(), harnessStatus: vi.fn(), skillsInventory: vi.fn(), skillsInstall: vi.fn(), skillsUninstall: vi.fn(), skillsRestore: vi.fn(), skillsPurge: vi.fn(), skillsCopy: vi.fn(), pickDirectory: vi.fn(),
     snapshot: vi.fn().mockResolvedValue(fixture()), saveKey: vi.fn().mockResolvedValue(keyId), deleteKey: vi.fn().mockResolvedValue(undefined),
     saveTarget: vi.fn().mockResolvedValue(targetId), deleteTarget: vi.fn().mockResolvedValue(undefined),
-    preview: vi.fn().mockImplementation(async () => preview()), applyPreview: vi.fn().mockResolvedValue([{ path: 'C:\\fake\\config.jsonc', outcome: 'applied', message: 'FAKE_RAW_MESSAGE', code: null, backupPath: 'C:\\fake\\backups\\fake.lkmbackup', temporaryPath: null }]),
-    cancelPreview: vi.fn().mockResolvedValue(undefined), listBackups: vi.fn().mockResolvedValue([{ backupPath: 'C:\\fake\\backups\\fake.lkmbackup', filePath: 'C:\\fake\\config.jsonc', createdUtc: '2026-10-13T00:00:00Z', error: null }]),
+    preview: vi.fn().mockImplementation(async () => preview()), applyPreview: vi.fn().mockResolvedValue([{ path: 'C:\\fake\\config.jsonc', outcome: 'applied', message: 'FAKE_RAW_MESSAGE', code: null, backupPath: 'C:\\fake\\backups\\fake.atmbackup', temporaryPath: null }]),
+    cancelPreview: vi.fn().mockResolvedValue(undefined), listBackups: vi.fn().mockResolvedValue([{ backupPath: 'C:\\fake\\backups\\fake.atmbackup', filePath: 'C:\\fake\\config.jsonc', createdUtc: '2026-10-13T00:00:00Z', error: null }]),
     previewRollback: vi.fn().mockResolvedValue(preview()), inferTemplate: vi.fn().mockResolvedValue(candidate()),
     saveTemplate: vi.fn().mockResolvedValue(templateId), deleteTemplate: vi.fn().mockResolvedValue(undefined), pickFile: vi.fn().mockResolvedValue('C:\\fake\\config.jsonc'),
   };
@@ -139,7 +139,7 @@ describe('preview, confirmation and interruptions', () => {
     const view = preview(); view.files[0]!.changed = false; vi.mocked(api.preview).mockResolvedValue(view); await makePreview(); input('confirm-preview').checked = true; change('confirm-preview'); expect(get<HTMLButtonElement>('apply-preview').disabled).toBe(true);
   });
   it('shows uncertain outcomes and plaintext temporary paths without automatic retry', async () => {
-    vi.mocked(api.applyPreview).mockResolvedValue([{ path: 'C:\\fake\\config.jsonc', outcome: 'outcomeUnknown', message: 'FAKE_RAW_EXCEPTION', code: null, backupPath: 'C:\\fake\\backup.lkmbackup', temporaryPath: 'C:\\fake\\.lkm-staging.tmp' }]);
+    vi.mocked(api.applyPreview).mockResolvedValue([{ path: 'C:\\fake\\config.jsonc', outcome: 'outcomeUnknown', message: 'FAKE_RAW_EXCEPTION', code: null, backupPath: 'C:\\fake\\backup.atmbackup', temporaryPath: 'C:\\fake\\.atm-staging.tmp' }]);
     await makePreview(); input('confirm-preview').checked = true; change('confirm-preview'); click('apply-preview'); await ready();
     expect(get('results-list').textContent).toContain('结果未确认'); expect(get('results-list').textContent).toContain('明文暂存文件未能清理'); expect(root.textContent).not.toContain('FAKE_RAW_EXCEPTION'); expect(api.applyPreview).toHaveBeenCalledOnce();
   });
@@ -170,7 +170,7 @@ describe('template confirmation and rollback', () => {
   it('discards a candidate on cancel without saving', async () => { await infer(); click('cancel-template'); expect(get('template-form').hidden).toBe(true); expect(get<HTMLTextAreaElement>('template-schema').value).toBe(''); expect(api.saveTemplate).not.toHaveBeenCalled(); });
   it('requires a rollback preview and a separate whole-file confirmation', async () => {
     root.querySelector<HTMLButtonElement>('[data-panel="backups"]')!.click(); await ready(); root.querySelector<HTMLButtonElement>('#backups-list button')!.click(); await ready();
-    expect(api.previewRollback).toHaveBeenCalledWith('C:\\fake\\backups\\fake.lkmbackup'); expect(get('confirm-preview-label').textContent).toContain('整个文件'); expect(api.applyPreview).not.toHaveBeenCalled();
+    expect(api.previewRollback).toHaveBeenCalledWith('C:\\fake\\backups\\fake.atmbackup'); expect(get('confirm-preview-label').textContent).toContain('整个文件'); expect(api.applyPreview).not.toHaveBeenCalled();
     input('confirm-preview').checked = true; change('confirm-preview'); click('apply-preview'); await ready(); expect(api.applyPreview).toHaveBeenCalledWith(previewId, true);
   });
 });

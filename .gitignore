@@ -2,7 +2,7 @@ artifacts/
 deliverables/
 *.dpapi
 *.lkmvault
-*.lkmbackup
+*.atmbackup
 *.zip
 *.tmp
 vault.lock
@@ -12,6 +12,9 @@ vault.lock
 .aws/
 .codex/
 .agents/
+# Vendored harness engine ships its own registry; re-include it explicitly
+# (a directory-level exclude like `.agents/` cannot be re-included by file rules).
+!harness/.agents/
 
 node_modules/
 /target/

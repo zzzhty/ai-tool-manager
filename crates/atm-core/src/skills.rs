@@ -1,7 +1,7 @@
 //! Cross-harness local skill inventory and bounded install/uninstall/copy.
-//! Works without oh-my-harness; when a manager installation exists, links into
-//! its managed checkout are classified `omh_managed` and never mutated here.
-use crate::omh::resolve_manager_home;
+//! Works without atm-harness; when a manager installation exists, links into
+//! its managed checkout are classified `engine_managed` and never mutated here.
+use crate::harness::resolve_manager_home;
 use crate::{storage, Error, Result};
 use serde::Serialize;
 use std::fs;
@@ -17,9 +17,9 @@ const MAX_INSTALL_FILES: usize = 512;
 const MAX_INSTALL_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_INSTALL_DEPTH: usize = 8;
 const MAX_NAME_BYTES: usize = 64;
-const STAGING_PREFIX: &str = ".lkm-skills-staging-";
+const STAGING_PREFIX: &str = ".atm-skills-staging-";
 
-/// Declared skill roots; path semantics mirror the oh-my-harness registry but
+/// Declared skill roots; path semantics mirror the atm-harness registry but
 /// are owned here so inventory works with no manager installed.
 const ROOTS: &[RootSpec] = &[
     RootSpec {
@@ -123,7 +123,7 @@ fn root_spec(root_id: &str) -> Result<&'static RootSpec> {
 #[serde(rename_all = "camelCase")]
 pub struct SkillEntryView {
     pub name: String,
-    /// `omh_managed` | `symlink` | `directory` | `other`
+    /// `engine_managed` | `symlink` | `directory` | `other`
     pub kind: &'static str,
     pub display_name: Option<String>,
     pub description: Option<String>,
@@ -158,7 +158,7 @@ pub struct SkillsInventoryView {
     pub manager_home: Option<String>,
 }
 
-/// User home directory, matching the oh-my-harness default resolution.
+/// User home directory, matching the atm-harness default resolution.
 pub(crate) fn user_home() -> Result<PathBuf> {
     let variable = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
     std::env::var_os(variable)
@@ -288,7 +288,7 @@ fn classify_entry(
         let (display_name, description) = read_frontmatter(entry_path);
         return SkillEntryView {
             name: entry_name.to_owned(),
-            kind: if managed { "omh_managed" } else { "symlink" },
+            kind: if managed { "engine_managed" } else { "symlink" },
             display_name,
             description,
             link_target: target,
@@ -550,7 +550,7 @@ impl SkillsService {
         }
     }
 
-    /// Test seam: pins the oh-my-harness home instead of reading the environment.
+    /// Test seam: pins the atm-harness home instead of reading the environment.
     pub fn with_manager_home(mut self, manager_home: Option<PathBuf>) -> Self {
         self.manager_home = manager_home;
         self
@@ -565,8 +565,7 @@ impl SkillsService {
     pub fn from_environment() -> Result<Self> {
         let home = user_home()?;
         storage::ensure_directory(&storage::data_directory()?)?;
-        let manager_home =
-            resolve_manager_home(std::env::var_os("OH_MY_HARNESS_HOME").as_deref(), &home);
+        let manager_home = resolve_manager_home(std::env::var_os("ATM_HOME").as_deref(), &home);
         Ok(Self {
             home,
             manager_home: Some(manager_home),
@@ -759,8 +758,8 @@ impl SkillsService {
             .is_some_and(|root| path_within(source, root) || path_within(target_root_dir, root))
         {
             return Err(Error::new(
-                "SKILLS_OMH_LOCKED",
-                "oh-my-harness 管理内容只能通过 omh 命令变更。",
+                "SKILLS_ENGINE_LOCKED",
+                "atm-harness 管理内容只能通过 harness 命令变更。",
             ));
         }
         auditable_source(source)?;
@@ -790,7 +789,7 @@ impl SkillsService {
     }
 
     /// Moves a real directory skill into the recoverable trash area, or unlinks
-    /// a non-managed link. oh-my-harness managed links are refused outright.
+    /// a non-managed link. atm-harness managed links are refused outright.
     pub fn uninstall(&self, root_id: &str, name: &str) -> Result<String> {
         let _guard = self.projection_guard()?;
         checked_name(name)?;
@@ -814,8 +813,8 @@ impl SkillsService {
             .is_some_and(|root| path_within(&target, root))
         {
             return Err(Error::new(
-                "SKILLS_OMH_LOCKED",
-                "oh-my-harness 管理内容只能通过 omh 命令变更。",
+                "SKILLS_ENGINE_LOCKED",
+                "atm-harness 管理内容只能通过 harness 命令变更。",
             ));
         }
         let metadata = fs::symlink_metadata(&target)
@@ -825,10 +824,10 @@ impl SkillsService {
             .as_ref()
             .map(|manager| fs::canonicalize(manager).unwrap_or_else(|_| manager.clone()));
         let view = classify_entry(&target, name, manager_repo.as_deref());
-        if view.kind == "omh_managed" {
+        if view.kind == "engine_managed" {
             return Err(Error::new(
-                "SKILLS_OMH_LOCKED",
-                "该条目由 oh-my-harness 管理；请在终端用 omh 命令变更。",
+                "SKILLS_ENGINE_LOCKED",
+                "该条目由 atm-harness 管理；请在终端用 harness 命令变更。",
             ));
         }
         if view.kind == "symlink" {
@@ -896,8 +895,8 @@ impl SkillsService {
             .is_some_and(|root| path_within(&target, root))
         {
             return Err(Error::new(
-                "SKILLS_OMH_LOCKED",
-                "oh-my-harness 管理内容只能通过 omh 命令变更。",
+                "SKILLS_ENGINE_LOCKED",
+                "atm-harness 管理内容只能通过 harness 命令变更。",
             ));
         }
         if fs::symlink_metadata(&target).is_ok() {

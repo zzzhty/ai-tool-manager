@@ -6,7 +6,7 @@ use aes_gcm::{
 };
 use zeroize::Zeroizing;
 
-pub(crate) const SERVICE: &str = "com.localkeymanager.desktop.storage.v1";
+pub(crate) const SERVICE: &str = "com.ai-tool-manager.desktop.storage.v1";
 pub(crate) const ACCOUNT: &str = "macos-aes-gcm-master-v1";
 const HEADER: &[u8] = b"LKM-MACOS-V1\0";
 
@@ -389,7 +389,7 @@ mod tests {
     }
     #[test]
     fn stable_platform_identity_and_distinct_authenticated_envelope() {
-        assert_eq!(SERVICE, "com.localkeymanager.desktop.storage.v1");
+        assert_eq!(SERVICE, "com.ai-tool-manager.desktop.storage.v1");
         assert_eq!(ACCOUNT, "macos-aes-gcm-master-v1");
         let p = AeadProtector::new(Zeroizing::new([0xa5; 32]));
         let plain = b"TEST_ONLY_secret";

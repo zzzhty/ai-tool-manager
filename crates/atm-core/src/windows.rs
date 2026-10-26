@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use std::{fs::File, path::Path};
 use zeroize::Zeroizing;
 
-pub const ENTROPY: &[u8] = b"LocalKeyManager/v1/CurrentUser";
+pub const ENTROPY: &[u8] = b"ai-tool-manager/v1/CurrentUser";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Fingerprint {
@@ -649,7 +649,7 @@ mod native {
             set_fixture_dacl(&destination, false, "D:P(A;;FA;;;OW)(A;;FA;;;SY)");
             let guard = open_guard(destination.to_str().expect("path")).expect("destination guard");
             let expected = dacl_text(&guard);
-            let temporary = root.path().join(".lkm-acl-test.tmp");
+            let temporary = root.path().join(".atm-acl-test.tmp");
             let mut stage =
                 create_config_staging(&temporary, &guard).expect("restricted empty stage");
             assert_eq!(stage.metadata().expect("stage info").len(), 0);

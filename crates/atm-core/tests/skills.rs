@@ -1,6 +1,6 @@
 #![cfg(any(target_os = "linux", target_os = "macos"))]
 // Only TEST_ONLY fixtures under temporary roots. No real harness directories,
-// no oh-my-harness installation and no network are touched. Link classification
+// no atm-harness installation and no network are touched. Link classification
 // is POSIX symlink semantics; Windows junctions compile via the same code paths.
 use atm_core::projection::ProjectionRegistry;
 use atm_core::skills::{SkillEntryView, SkillsInventoryView, SkillsService};
@@ -35,10 +35,10 @@ fn fixture() -> Fixture {
     let home = tempfile::tempdir().unwrap();
     let trash = tempfile::tempdir().unwrap();
     let sources = tempfile::tempdir().unwrap();
-    let repo = home.path().join(".oh-my-harness").join("repo");
+    let repo = home.path().join(".atm").join("repo");
     fs::create_dir_all(repo.join("plugins").join("demo")).unwrap();
     let service = SkillsService::new(home.path().to_path_buf(), trash.path().join("private"))
-        .with_manager_home(Some(home.path().join(".oh-my-harness")));
+        .with_manager_home(Some(home.path().join(".atm")));
     Fixture {
         home,
         trash,
@@ -78,7 +78,7 @@ fn inventory_classifies_links_directories_and_excludes_dot_entries() {
     fs::write(root.join("stray.txt"), b"TEST_ONLY").unwrap();
     // Dot entries (Codex system skills, staging leftovers) never appear.
     fs::create_dir_all(root.join(".system")).unwrap();
-    fs::create_dir_all(root.join(".lkm-skills-staging-x")).unwrap();
+    fs::create_dir_all(root.join(".atm-skills-staging-x")).unwrap();
 
     let inventory = f.service.inventory().unwrap();
     let claude = inventory
@@ -91,7 +91,7 @@ fn inventory_classifies_links_directories_and_excludes_dot_entries() {
     assert_eq!(names, ["broken", "linked", "managed", "plain", "stray.txt"]);
     assert_eq!(
         find(&inventory, "claude-code", "managed").kind,
-        "omh_managed"
+        "engine_managed"
     );
     assert_eq!(find(&inventory, "claude-code", "linked").kind, "symlink");
     assert_eq!(find(&inventory, "claude-code", "broken").kind, "symlink");
@@ -162,7 +162,7 @@ fn install_copies_an_audited_directory_atomically_and_inventories_it() {
         .all(|e| !e
             .file_name()
             .to_string_lossy()
-            .starts_with(".lkm-skills-staging")));
+            .starts_with(".atm-skills-staging")));
     let inventory = f.service.inventory().unwrap();
     assert_eq!(
         find(&inventory, "claude-code", "my-skill").kind,
@@ -231,7 +231,7 @@ fn install_failures_reject_and_leave_no_staging_directory() {
         .all(|e| !e
             .file_name()
             .to_string_lossy()
-            .starts_with(".lkm-skills-staging")));
+            .starts_with(".atm-skills-staging")));
 }
 
 #[test]
@@ -266,7 +266,7 @@ fn uninstall_moves_directories_to_trash_and_rejects_managed_links() {
             .uninstall("claude-code", "managed")
             .unwrap_err()
             .code,
-        "SKILLS_OMH_LOCKED"
+        "SKILLS_ENGINE_LOCKED"
     );
     assert!(root.join("managed").exists());
 
@@ -375,7 +375,7 @@ fn copy_to_clones_between_roots_and_refuses_collisions() {
 // Explicit live check against the real harness roots; read-only, opt-in.
 #[test]
 fn live_inventory_against_real_roots_when_explicitly_requested() {
-    if std::env::var("LKM_SKILLS_LIVE")
+    if std::env::var("ATM_SKILLS_LIVE")
         .map(|value| value != "1")
         .unwrap_or(true)
     {
@@ -396,7 +396,7 @@ fn restore_refuses_registered_projection_names_and_recreates_a_missing_root() {
     )
     .unwrap();
     let service = SkillsService::new(f.home.path().to_path_buf(), f.trash.path().join("private"))
-        .with_manager_home(Some(f.home.path().join(".oh-my-harness")))
+        .with_manager_home(Some(f.home.path().join(".atm")))
         .with_sources_root(Some(registry.sources_root()));
     let source = write_skill(f.sources.path(), "mine-src", FRONT);
     service.install(&source, "claude-code", "mine").unwrap();
@@ -430,7 +430,7 @@ fn copy_and_uninstall_reject_projections_broken_links_and_plain_files() {
     )
     .unwrap();
     let service = SkillsService::new(f.home.path().to_path_buf(), f.trash.path().join("private"))
-        .with_manager_home(Some(f.home.path().join(".oh-my-harness")))
+        .with_manager_home(Some(f.home.path().join(".atm")))
         .with_sources_root(Some(registry.sources_root()));
     let source = write_skill(f.sources.path(), "src", FRONT);
     registry
@@ -491,7 +491,7 @@ fn copy_and_uninstall_reject_projections_broken_links_and_plain_files() {
 }
 
 #[test]
-fn broken_omh_links_stay_protected_and_oversized_frontmatter_is_not_read() {
+fn broken_engine_links_stay_protected_and_oversized_frontmatter_is_not_read() {
     let f = fixture();
     let root = claude_root(&f);
     fs::create_dir_all(&root).unwrap();
@@ -501,7 +501,7 @@ fn broken_omh_links_stay_protected_and_oversized_frontmatter_is_not_read() {
             .uninstall("claude-code", "broken-managed")
             .unwrap_err()
             .code,
-        "SKILLS_OMH_LOCKED"
+        "SKILLS_ENGINE_LOCKED"
     );
     assert_eq!(
         find(
@@ -510,7 +510,7 @@ fn broken_omh_links_stay_protected_and_oversized_frontmatter_is_not_read() {
             "broken-managed"
         )
         .kind,
-        "omh_managed"
+        "engine_managed"
     );
     let huge = write_skill(&root, "huge", FRONT);
     fs::OpenOptions::new()
@@ -528,30 +528,26 @@ fn broken_omh_links_stay_protected_and_oversized_frontmatter_is_not_read() {
 fn aliased_manager_home_protects_real_owned_sources_and_missing_targets() {
     let f = fixture();
     let alias = f.home.path().join("manager-alias");
-    symlink(f.home.path().join(".oh-my-harness"), &alias).unwrap();
+    symlink(f.home.path().join(".atm"), &alias).unwrap();
     let service = SkillsService::new(f.home.path().into(), f.trash.path().join("private"))
         .with_manager_home(Some(alias));
     let owned = write_skill(&f.repo, "owned", FRONT);
     assert_eq!(
         service.install(&owned, "zcode", "owned").unwrap_err().code,
-        "SKILLS_OMH_LOCKED"
+        "SKILLS_ENGINE_LOCKED"
     );
     let foreign = write_skill(f.sources.path(), "foreign", FRONT);
     service.install(&foreign, "zcode", "foreign").unwrap();
     // An existing ancestor points into the manager, but the skills root is absent.
-    symlink(
-        f.home.path().join(".oh-my-harness"),
-        f.home.path().join(".claude"),
-    )
-    .unwrap();
+    symlink(f.home.path().join(".atm"), f.home.path().join(".claude")).unwrap();
     assert_eq!(
         service
             .install(&foreign, "claude-code", "new")
             .unwrap_err()
             .code,
-        "SKILLS_OMH_LOCKED"
+        "SKILLS_ENGINE_LOCKED"
     );
-    assert!(!f.home.path().join(".oh-my-harness/skills").exists());
+    assert!(!f.home.path().join(".atm/skills").exists());
 }
 
 #[test]

@@ -2,8 +2,8 @@
 use atm::{template_store, usage_service::UsageService};
 use atm_core::{
     batch::{BackupView, BatchUpdater, FileResult, Preview, PreviewView},
+    harness::{self, HarnessStatusSnapshot},
     jsonc,
-    omh::{self, OmhStatusSnapshot},
     skills::{SkillsInventoryView, SkillsService},
     storage,
     templates::{self, ApplicationIdentity, TemplateCandidate},
@@ -643,17 +643,17 @@ async fn query_glm_usage(
     .map_err(|_| Error::new("STATE_BUSY", "GLM 查询未能完成。"))?
 }
 #[tauri::command]
-async fn omh_status(
+async fn harness_status(
     window: WebviewWindow,
     state: AppState<'_>,
-) -> Result<OmhStatusSnapshot, Error> {
+) -> Result<HarnessStatusSnapshot, Error> {
     authorized(&window)?;
     let demo = lock(&state)?.demo;
     if demo {
         // Same recorded shape with TEST_ONLY values; no process is launched in demo mode.
-        let snapshot = omh::parse(
+        let snapshot = harness::parse(
             &serde_json::json!({
-                "product": "oh-my-harness",
+                "product": "atm-harness",
                 "observation": "recorded-state-only",
                 "stateKind": "recorded",
                 "operation": null,
@@ -663,46 +663,46 @@ async fn omh_status(
                     "codex": [{"harness": "codex", "status": "ready", "root": "TEST_ONLY/home/.codex", "releaseVersion": "0.0.0", "updatedAt": "2026-10-15T00:00:00Z"}],
                     "claude-code": [{"harness": "claude-code", "status": "ready", "root": "TEST_ONLY/home/.claude", "releaseVersion": "0.0.0", "updatedAt": "2026-10-15T00:00:00Z"}]
                 },
-                "manager": {"product": "oh-my-harness", "channel": "stable", "status": "ready", "releaseVersion": "0.0.0", "revision": "TEST_ONLY_REVISION", "repository": "TEST_ONLY"}
+                "manager": {"product": "atm-harness", "channel": "stable", "status": "ready", "releaseVersion": "0.0.0", "revision": "TEST_ONLY_REVISION", "repository": "TEST_ONLY"}
             }),
-            "TEST_ONLY/.oh-my-harness",
+            "TEST_ONLY/.atm",
             "synthetic_demo",
         )?;
         return Ok(snapshot);
     }
-    tauri::async_runtime::spawn_blocking(omh::query_from_environment)
+    tauri::async_runtime::spawn_blocking(harness::query_from_environment)
         .await
-        .map_err(|_| Error::new("STATE_BUSY", "oh-my-harness 状态查询未能完成。"))?
+        .map_err(|_| Error::new("STATE_BUSY", "atm-harness 状态查询未能完成。"))?
 }
 #[tauri::command]
-async fn omh_diagnose(
+async fn harness_diagnose(
     window: WebviewWindow,
     state: AppState<'_>,
     operation: String,
-) -> Result<atm_core::omh_machine::Diagnostic, Error> {
+) -> Result<atm_core::harness_machine::Diagnostic, Error> {
     authorized(&window)?;
     if lock(&state)?.demo {
         return Err(demo_refusal());
     }
-    tauri::async_runtime::spawn_blocking(move || atm_core::omh_machine::diagnose(&operation))
+    tauri::async_runtime::spawn_blocking(move || atm_core::harness_machine::diagnose(&operation))
         .await
-        .map_err(|_| Error::new("OMH_CLI_FAILED", "OMH 诊断未完成。"))?
+        .map_err(|_| Error::new("HARNESS_CLI_FAILED", "harness 诊断未完成。"))?
 }
 #[tauri::command]
-async fn omh_capabilities(
+async fn harness_capabilities(
     window: WebviewWindow,
     state: AppState<'_>,
-) -> Result<atm_core::omh_machine::Capabilities, Error> {
+) -> Result<atm_core::harness_machine::Capabilities, Error> {
     authorized(&window)?;
     if lock(&state)?.demo {
         return Err(demo_refusal());
     }
-    tauri::async_runtime::spawn_blocking(atm_core::omh_machine::capabilities)
+    tauri::async_runtime::spawn_blocking(atm_core::harness_machine::capabilities)
         .await
-        .map_err(|_| Error::new("OMH_CLI_FAILED", "OMH 能力查询未完成。"))?
+        .map_err(|_| Error::new("HARNESS_CLI_FAILED", "harness 能力查询未完成。"))?
 }
 #[tauri::command]
-async fn omh_execute(
+async fn harness_execute(
     window: WebviewWindow,
     state: AppState<'_>,
     operation: String,
@@ -714,10 +714,15 @@ async fn omh_execute(
         return Err(demo_refusal());
     }
     tauri::async_runtime::spawn_blocking(move || {
-        atm_core::omh_machine::execute(&operation, &harnesses, confirmed)
+        atm_core::harness_machine::execute(&operation, &harnesses, confirmed)
     })
     .await
-    .map_err(|_| Error::new("OMH_OPERATION_FAILED", "OMH 操作未完成；请核对状态。"))?
+    .map_err(|_| {
+        Error::new(
+            "HARNESS_OPERATION_FAILED",
+            "harness 操作未完成；请核对状态。",
+        )
+    })?
 }
 fn demo_refusal() -> Error {
     Error::new(
@@ -758,12 +763,10 @@ async fn skills_inventory(
                         },
                         SkillEntryView {
                             name: "managed".into(),
-                            kind: "omh_managed",
+                            kind: "engine_managed",
                             display_name: None,
                             description: None,
-                            link_target: Some(
-                                "TEST_ONLY/home/.oh-my-harness/repo/plugins/demo".into(),
-                            ),
+                            link_target: Some("TEST_ONLY/home/.atm/repo/plugins/demo".into()),
                         },
                     ],
                 },
@@ -823,7 +826,7 @@ async fn skills_inventory(
                 name: "old-demo".into(),
                 origin_path: "TEST_ONLY/.zcode/skills/old-demo".into(),
             }],
-            manager_home: Some("TEST_ONLY/home/.oh-my-harness".into()),
+            manager_home: Some("TEST_ONLY/home/.atm".into()),
         });
     }
     tauri::async_runtime::spawn_blocking(|| {
@@ -942,7 +945,7 @@ async fn skills_copy(
 struct NativeSmokeEvidence {
     rendered_vault: bool,
     rendered_quota_ui: bool,
-    rendered_omh_ui: bool,
+    rendered_harness_ui: bool,
     rendered_skills_ui: bool,
     unknown_visible: bool,
     demo_query_rendered: bool,
@@ -964,7 +967,7 @@ enum NativeSmokePhase {
     Applied,
     RolledBack,
     Quota,
-    Omh,
+    Harness,
     Skills,
     Finished,
     Failed,
@@ -989,7 +992,7 @@ fn report_linux_smoke(
             ));
         }
         let root = PathBuf::from(
-            std::env::var_os("LKM_GUI_TEST_ROOT")
+            std::env::var_os("ATM_GUI_TEST_ROOT")
                 .ok_or(Error::new("SMOKE_SCOPE", "缺少隔离测试目录。"))?,
         );
         storage::ensure_directory(&root)?;
@@ -1010,7 +1013,7 @@ fn report_linux_smoke(
                     serde_json::to_vec(&serde_json::json!({
                         "passed":false, "phase":"failed", "pid":std::process::id(),
                         "scope":"synthetic assertion or IPC failure; see finite phase markers",
-                        "testedSha":std::env::var("LKM_TESTED_SHA").unwrap_or_default()
+                        "testedSha":std::env::var("ATM_TESTED_SHA").unwrap_or_default()
                     }))
                     .map_err(|_| Error::new("SMOKE_SCOPE", "无法记录失败结果。"))?,
                 )?;
@@ -1020,7 +1023,7 @@ fn report_linux_smoke(
         }
         if !evidence.rendered_vault
             || !evidence.rendered_quota_ui
-            || !evidence.rendered_omh_ui
+            || !evidence.rendered_harness_ui
             || !evidence.rendered_skills_ui
             || !evidence.unknown_visible
             || !evidence.demo_query_rendered
@@ -1046,9 +1049,9 @@ fn report_linux_smoke(
             return Err(Error::new("SMOKE_SCOPE", "假配置回滚或备份验证失败。"));
         }
         let result = serde_json::json!({
-            "passed":true, "testedSha":std::env::var("LKM_TESTED_SHA").unwrap_or_default(),
+            "passed":true, "testedSha":std::env::var("ATM_TESTED_SHA").unwrap_or_default(),
             "renderedVault":evidence.rendered_vault, "renderedQuotaUi":evidence.rendered_quota_ui,
-            "renderedOmhUi":evidence.rendered_omh_ui, "renderedSkillsUi":evidence.rendered_skills_ui,
+            "renderedHarnessUi":evidence.rendered_harness_ui, "renderedSkillsUi":evidence.rendered_skills_ui,
             "unknownVisible":evidence.unknown_visible, "demoQueryRendered":evidence.demo_query_rendered, "resized":evidence.resized,
             "confirmedWrite":evidence.confirmed_write, "confirmationRefused":evidence.confirmation_refused,
             "cancellationRefused":evidence.cancellation_refused, "duplicateRefused":evidence.duplicate_refused,
@@ -1085,7 +1088,7 @@ fn run() -> Result<(), Error> {
     let demo = std::env::args().skip(1).any(|arg| arg == "--demo");
     // Validate the synthetic test envelope before opening any vault or key store.
     #[cfg(all(any(target_os = "linux", target_os = "macos"), feature = "smoke-tests"))]
-    if let Some(root) = std::env::var_os("LKM_GUI_TEST_ROOT") {
+    if let Some(root) = std::env::var_os("ATM_GUI_TEST_ROOT") {
         let root = std::fs::canonicalize(root)?;
         if !demo || std::env::var("CI").as_deref() != Ok("true") {
             return Err(Error::new("SMOKE_SCOPE", "原生测试必须使用隔离演示模式。"));
@@ -1162,10 +1165,10 @@ fn run() -> Result<(), Error> {
             disconnect_codex_cli,
             query_codex_usage,
             query_glm_usage,
-            omh_status,
-            omh_capabilities,
-            omh_diagnose,
-            omh_execute,
+            harness_status,
+            harness_capabilities,
+            harness_diagnose,
+            harness_execute,
             skills_inventory,
             skills_install,
             skills_uninstall,
@@ -1178,7 +1181,7 @@ fn run() -> Result<(), Error> {
     let builder = builder
         .setup(|app| {
             if std::env::var("CI").as_deref() == Ok("true")
-                && std::env::var_os("LKM_GUI_TEST_ROOT").is_some()
+                && std::env::var_os("ATM_GUI_TEST_ROOT").is_some()
                 && app.state::<Mutex<Service>>().lock().is_ok_and(|s| s.demo)
             {
                 app.manage(std::sync::atomic::AtomicBool::new(false));

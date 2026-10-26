@@ -60,7 +60,7 @@ fn memory_only_vault_roundtrip_private_modes_and_locking() {
     let (vault, _, _, _) = fixture(root.path());
     let directory = vault.directory().to_owned();
     assert_eq!(storage::kind(), "macos_keychain");
-    assert_eq!(storage::vault_filename(), "vault.lkmvault");
+    assert_eq!(storage::vault_filename(), "vault.atmvault");
     let encrypted = fs::read(directory.join(storage::vault_filename())).unwrap();
     assert!(encrypted.starts_with(b"LKM-MACOS-V1\0"));
     assert!(!encrypted.windows(13).any(|p| p == b"TEST_ONLY_NEW"));

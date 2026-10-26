@@ -71,7 +71,7 @@ pub fn encrypted_write_with(path: &Path, bytes: &[u8], protector: &dyn Protector
         .parent()
         .ok_or(Error::new("DATA_PATH", "存储路径无效。"))?;
     storage::ensure_directory(parent)?;
-    let temporary = parent.join(format!(".lkm-encrypted-{}.tmp", Uuid::new_v4()));
+    let temporary = parent.join(format!(".atm-encrypted-{}.tmp", Uuid::new_v4()));
     let result = (|| {
         let mut output = windows::create_staging(&temporary)?;
         output.write_all(&protected)?;

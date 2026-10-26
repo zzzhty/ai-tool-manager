@@ -23,7 +23,7 @@ beforeEach(async () => {
     snapshot: vi.fn().mockResolvedValue(data()), cancelPreview: vi.fn(), saveKey: vi.fn(), deleteKey: vi.fn(), saveTarget: vi.fn(), deleteTarget: vi.fn(),
     preview: vi.fn(), applyPreview: vi.fn(), listBackups: vi.fn(), previewRollback: vi.fn(), inferTemplate: vi.fn(), saveTemplate: vi.fn(), deleteTemplate: vi.fn(), pickFile: vi.fn(),
     initializeStorage: vi.fn(), configureCodexCli: vi.fn(), disconnectCodexCli: vi.fn(),
-    queryCodexUsage: vi.fn().mockResolvedValue(usage('codex')), queryGlmUsage: vi.fn().mockResolvedValue(usage()), omhDiagnose: vi.fn(), omhCapabilities: vi.fn(), omhExecute: vi.fn(), omhStatus: vi.fn(), skillsInventory: vi.fn(), skillsInstall: vi.fn(), skillsUninstall: vi.fn(), skillsRestore: vi.fn(), skillsPurge: vi.fn(), skillsCopy: vi.fn(), pickDirectory: vi.fn(),
+    queryCodexUsage: vi.fn().mockResolvedValue(usage('codex')), queryGlmUsage: vi.fn().mockResolvedValue(usage()), harnessDiagnose: vi.fn(), harnessCapabilities: vi.fn(), harnessExecute: vi.fn(), harnessStatus: vi.fn(), skillsInventory: vi.fn(), skillsInstall: vi.fn(), skillsUninstall: vi.fn(), skillsRestore: vi.fn(), skillsPurge: vi.fn(), skillsCopy: vi.fn(), pickDirectory: vi.fn(),
   };
   root = document.createElement('div'); document.body.append(root); app = new DesktopApp(root, api); await app.start();
   root.querySelector<HTMLButtonElement>('[data-panel="usage"]')!.click();

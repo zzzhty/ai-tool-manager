@@ -1,0 +1,4 @@
+interface:
+  display_name: "Doc Alignment"
+  short_description: "Align active guidance with repository source truth"
+  default_prompt: "Use $doc-alignment in report-only audit mode to compare this documentation scope with repository source truth. Do not modify target files."

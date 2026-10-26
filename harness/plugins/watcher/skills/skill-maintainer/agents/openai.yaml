@@ -1,0 +1,4 @@
+interface:
+  display_name: "Skill Maintainer"
+  short_description: "Propose skill updates from Watcher evidence"
+  default_prompt: "Use $skill-maintainer to analyze Watcher evidence and produce a bounded skill update proposal without changing the source skill."

@@ -17,7 +17,7 @@
     throw Error(command + ' unexpectedly succeeded');
   };
   const progress = phase => invoke('report_linux_smoke', {phase, evidence:{
-    renderedVault:false, renderedQuotaUi:false, renderedOmhUi:false, renderedSkillsUi:false,
+    renderedVault:false, renderedQuotaUi:false, renderedHarnessUi:false, renderedSkillsUi:false,
     unknownVisible:false, demoQueryRendered:false, resized:false, confirmedWrite:false,
     confirmationRefused:false, cancellationRefused:false, duplicateRefused:false,
     rollbackApplied:false, capabilityDenied:false, demoMutationRefused:false
@@ -77,20 +77,20 @@
     confirm.checked=true; confirm.dispatchEvent(new Event('change'));
     await click('#query-glm');
     await until(() => document.querySelector('#glm-usage-result').textContent.includes('60.0%'));
-    await progress('omh');
-    await click('[data-panel="omh"]');
-    await click('#query-omh');
-    await until(() => document.querySelector('#omh-status-result').textContent.includes('记录就绪'));
+    await progress('harness');
+    await click('[data-panel="harness"]');
+    await click('#query-harness');
+    await until(() => document.querySelector('#harness-status-result').textContent.includes('记录就绪'));
     await progress('skills');
     await click('[data-panel="skills"]');
     await click('#inventory-skills');
-    await until(() => document.querySelector('#skills-roots').textContent.includes('由 OMH 管理'));
+    await until(() => document.querySelector('#skills-roots').textContent.includes('内置分发管理'));
     await until(() => enabled('#inventory-skills'));
     await progress('finished');
     await invoke('report_linux_smoke', {phase:null, evidence:{
       renderedVault:document.querySelector('#keys-list').textContent.includes('••••••••'),
       renderedQuotaUi:!!document.querySelector('#codex-cli') && !!document.querySelector('#query-glm'),
-      renderedOmhUi:document.querySelector('#omh-status-result').textContent.includes('codex'),
+      renderedHarnessUi:document.querySelector('#harness-status-result').textContent.includes('codex'),
       renderedSkillsUi:document.querySelector('#skills-roots').textContent.includes('demo-skill'),
       unknownVisible:unknown, demoQueryRendered:document.querySelector('#glm-usage-result').textContent.includes('TEST_ONLY 演示数据'),
       resized:window.innerWidth<=650, confirmedWrite:true, confirmationRefused,

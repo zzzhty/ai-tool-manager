@@ -1,11 +1,11 @@
 import { layout } from './layout';
 import { UsagePanel } from './usage';
-import { OmhPanel } from './omh';
+import { HarnessPanel } from './harness';
 import { SkillsPanel } from './skills';
 import { MASK, NIL_UUID, displayDate, outcomeLabels, pointerIsValid, safeError, schemaText } from './safety';
 import type { BackupView, DesktopApi, FileResult, PreviewView, SnapshotView, TargetMapping, TemplateCandidate } from './types';
 
-type Panel = 'keys' | 'targets' | 'templates' | 'backups' | 'usage' | 'omh' | 'skills';
+type Panel = 'keys' | 'targets' | 'templates' | 'backups' | 'usage' | 'harness' | 'skills';
 const emptySnapshot = (): SnapshotView => ({ keys: [], targets: [], templates: [] });
 const element = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, className?: string): HTMLElementTagNameMap[K] => {
   const node = document.createElement(tag);
@@ -20,7 +20,7 @@ const option = (text: string, value: string): HTMLOptionElement => {
 
 export class DesktopApp {
   private readonly usage: UsagePanel;
-  private readonly omh: OmhPanel;
+  private readonly harness: HarnessPanel;
   private readonly skills: SkillsPanel;
   private data: SnapshotView = emptySnapshot();
   private selected = new Set<string>();
@@ -40,7 +40,7 @@ export class DesktopApp {
   constructor(private readonly root: HTMLElement, private readonly api: DesktopApi) {
     root.innerHTML = layout;
     this.usage = new UsagePanel(root, api, (message, action) => this.run(message, action), message => this.notice(message));
-    this.omh = new OmhPanel(root, api, (message, action) => this.run(message, action), message => this.notice(message),
+    this.harness = new HarnessPanel(root, api, (message, action) => this.run(message, action), message => this.notice(message),
       (description, action) => this.askDelete(description, action));
     this.skills = new SkillsPanel(root, api, (message, action) => this.run(message, action), message => this.notice(message),
       (description, action) => this.askDelete(description, action));
@@ -83,7 +83,7 @@ export class DesktopApp {
     });
   }
   dispose(): void {
-    this.disposed = true; this.usage.dispose(); this.omh.dispose(); this.skills.dispose(); this.clearSecret(); this.revision++;
+    this.disposed = true; this.usage.dispose(); this.harness.dispose(); this.skills.dispose(); this.clearSecret(); this.revision++;
     for (const remove of this.listeners) remove();
     this.listeners.length = 0;
   }
@@ -113,7 +113,7 @@ export class DesktopApp {
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-panel]')) {
       if (button.dataset.panel === panel) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
     }
-    for (const name of ['keys', 'targets', 'templates', 'backups', 'usage', 'omh', 'skills']) this.get(`panel-${name}`).hidden = name !== panel;
+    for (const name of ['keys', 'targets', 'templates', 'backups', 'usage', 'harness', 'skills']) this.get(`panel-${name}`).hidden = name !== panel;
     if (panel === 'backups') void this.refreshBackups();
   }
 
@@ -178,7 +178,7 @@ export class DesktopApp {
     disable('infer-template', !this.input('template-source').value);
     disable('save-template', !this.candidate || !this.input('confirm-template').checked || !this.selectedCandidatePointers().length);
     this.usage.refreshControls(this.busy, this.loaded);
-    this.omh.refreshControls(this.busy, this.loaded);
+    this.harness.refreshControls(this.busy, this.loaded);
     this.skills.refreshControls(this.busy, this.loaded);
     const selection = this.get('selection-count'); selection.textContent = `已选择 ${this.selected.size} 项`;
     this.get('select-all').textContent = this.selected.size === this.data.targets.length && this.selected.size > 0 ? '取消全选' : '全选';

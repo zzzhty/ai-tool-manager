@@ -1,10 +1,10 @@
-//! Single-source, multi-root skill projection: an oh-my-harness style
+//! Single-source, multi-root skill projection: an atm-harness style
 //! distribution model owned entirely by this manager. A skill source is
 //! adopted into `<data>/skills-sources/sources/<name>` as the canonical copy,
 //! then projected into declared harness roots as links (POSIX symlink) or
 //! plain copies (Windows junction/symlink privileges are not assumed).
 //! Projections are recorded in `registry.json`; check/refresh/remove only
-//! ever touch links recorded there. oh-my-harness projections are never
+//! ever touch links recorded there. atm-harness projections are never
 //! listed or modified here — coexistence relies on both sides' same-name
 //! refusal discipline.
 use crate::skills::{
@@ -124,11 +124,11 @@ impl ProjectionRegistry {
 
     fn manager_home(&self) -> PathBuf {
         let override_home = if self.inherit_environment {
-            std::env::var_os("OH_MY_HARNESS_HOME")
+            std::env::var_os("ATM_HOME")
         } else {
             None
         };
-        crate::omh::resolve_manager_home(override_home.as_deref(), &self.home)
+        crate::harness::resolve_manager_home(override_home.as_deref(), &self.home)
     }
 
     fn registry_path(&self) -> PathBuf {
@@ -213,7 +213,7 @@ impl ProjectionRegistry {
             .map_err(|_| Error::new("PROJECTION_REGISTRY", "技能投影登记序列化失败。"))?;
         text.push('\n');
         let staging = self.root.join(format!(
-            "registry.json.lkm-staging-{}",
+            "registry.json.atm-staging-{}",
             uuid::Uuid::new_v4()
         ));
         let result = (|| {
@@ -263,8 +263,8 @@ impl ProjectionRegistry {
         let manager_home = self.manager_home();
         if path_within(source, &manager_home) {
             return Err(Error::new(
-                "SKILLS_OMH_LOCKED",
-                "不能收编或重新投影 oh-my-harness 管理的技能。",
+                "SKILLS_ENGINE_LOCKED",
+                "不能收编或重新投影 atm-harness 管理的技能。",
             ));
         }
         if targets.len() > MAX_PROJECTIONS_PER_SOURCE {
@@ -417,8 +417,8 @@ impl ProjectionRegistry {
         let manager_home = self.manager_home();
         if path_within(&root, &manager_home) {
             return Err(Error::new(
-                "SKILLS_OMH_LOCKED",
-                "不能向 oh-my-harness 管理目录投影。",
+                "SKILLS_ENGINE_LOCKED",
+                "不能向 atm-harness 管理目录投影。",
             ));
         }
         let target = root.join(name);
@@ -447,7 +447,7 @@ impl ProjectionRegistry {
         if fs::symlink_metadata(&target).is_ok() {
             return Err(Error::new(
                 "SKILLS_TAKEN",
-                "目标根已存在同名条目；不会覆盖。若它由 oh-my-harness 管理，请用 omh 命令处理。",
+                "目标根已存在同名条目；不会覆盖。若它由 atm-harness 管理，请用 harness 命令处理。",
             ));
         }
         create_materialization(canonical, &target)?;
@@ -540,8 +540,8 @@ impl ProjectionRegistry {
         let manager_home = self.manager_home();
         if path_within(&root, &manager_home) {
             return Err(Error::new(
-                "SKILLS_OMH_LOCKED",
-                "不能变更 oh-my-harness 管理目录。",
+                "SKILLS_ENGINE_LOCKED",
+                "不能变更 atm-harness 管理目录。",
             ));
         }
         let target = root.join(link_name);
@@ -801,7 +801,7 @@ impl ProjectionRegistry {
 
                 // Fully audit/copy before moving the old projection. Force only
                 // authorizes discarding edits after the replacement is ready.
-                let staging = root.join(format!(".lkm-staging-{}", uuid::Uuid::new_v4()));
+                let staging = root.join(format!(".atm-staging-{}", uuid::Uuid::new_v4()));
                 if materialization_mode() == Materialization::Copy {
                     auditable_source(&canonical)?;
                 }
@@ -834,7 +834,7 @@ impl ProjectionRegistry {
                         return Err(error);
                     }
                 };
-                let retired = root.join(format!(".lkm-refresh-old-{}", uuid::Uuid::new_v4()));
+                let retired = root.join(format!(".atm-refresh-old-{}", uuid::Uuid::new_v4()));
                 if present {
                     if let Err(error) = fs::rename(&target, &retired) {
                         remove_materialization(&staging).map_err(|_| refresh_recovery_error())?;
@@ -897,8 +897,8 @@ impl ProjectionRegistry {
         let manager_home = self.manager_home();
         if path_within(&root, &manager_home) {
             return Err(Error::new(
-                "SKILLS_OMH_LOCKED",
-                "不能变更 oh-my-harness 管理目录。",
+                "SKILLS_ENGINE_LOCKED",
+                "不能变更 atm-harness 管理目录。",
             ));
         }
         let check_components = || -> Result<()> {
@@ -1021,7 +1021,7 @@ fn restore_retired(retired: &Path, target: &Path) -> Result<()> {
 }
 
 fn refresh_recovery_error() -> Error {
-    Error::new("PROJECTION_RECOVERY", "投影替换或清理未确认；内容和登记已保留，请核对 .lkm-refresh-old-* 与 .lkm-staging-*，勿直接删除。")
+    Error::new("PROJECTION_RECOVERY", "投影替换或清理未确认；内容和登记已保留，请核对 .atm-refresh-old-* 与 .atm-staging-*，勿直接删除。")
 }
 
 fn remove_link(path: &Path) -> std::io::Result<()> {

@@ -39,11 +39,11 @@ with tempfile.TemporaryDirectory(prefix="TEST_ONLY-atm-gui-", dir="/private/tmp"
     env.update({
         "HOME": str(root / "home"), "TMPDIR": str(root / "tmp"),
         "XDG_DATA_HOME": str(root / "data"), "XDG_CONFIG_HOME": str(root / "config"),
-        "OH_MY_HARNESS_HOME": str(root / "omh"), "CI": "true", "LKM_GUI_TEST_ROOT": str(root),
-        "LKM_TESTED_SHA": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip(),
-        "LKM_SKILLS_LIVE": "0", "LKM_OMH_LIVE": "0", "PYTHONNOUSERSITE": "1",
+        "ATM_HOME": str(root / "harness"), "CI": "true", "ATM_GUI_TEST_ROOT": str(root),
+        "ATM_TESTED_SHA": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip(),
+        "ATM_SKILLS_LIVE": "0", "ATM_ENGINE_LIVE": "0", "PYTHONNOUSERSITE": "1",
     })
-    for name in ["home", "tmp", "data", "config", "omh"]:
+    for name in ["home", "tmp", "data", "config", "harness"]:
         (root / name).mkdir(mode=0o700)
     with (evidence / "app.log").open("w") as output:
         process = subprocess.Popen([str(executable), "--demo"], env=env, stdout=output,
@@ -54,7 +54,7 @@ with tempfile.TemporaryDirectory(prefix="TEST_ONLY-atm-gui-", dir="/private/tmp"
             launch = subprocess.check_output(["/bin/ps", "-p", str(process.pid), "-o", "command="], text=True).strip()
             assert str(executable) in launch and "--demo" in launch
             actual_env = subprocess.check_output(["/bin/ps", "eww", "-p", str(process.pid), "-o", "command="], text=True)
-            for key in ["HOME", "TMPDIR", "LKM_GUI_TEST_ROOT", "LKM_SKILLS_LIVE", "LKM_OMH_LIVE"]:
+            for key in ["HOME", "TMPDIR", "ATM_GUI_TEST_ROOT", "ATM_SKILLS_LIVE", "ATM_ENGINE_LIVE"]:
                 assert key + "=" + env[key] in actual_env
             while process.poll() is None:
                 if time.monotonic() > deadline:
@@ -84,7 +84,7 @@ with tempfile.TemporaryDirectory(prefix="TEST_ONLY-atm-gui-", dir="/private/tmp"
                 "cancellationRefused", "duplicateRefused", "rollbackApplied", "capabilityDenied",
                 "demoMutationRefused", "incognito"]
     assert all(result.get(key) is True for key in required)
-    assert result["platform"] == "macos" and result["testedSha"] == env["LKM_TESTED_SHA"]
+    assert result["platform"] == "macos" and result["testedSha"] == env["ATM_TESTED_SHA"]
     assert result["pid"] == process.pid
     assert Path(result["home"]) == Path(env["HOME"])
     assert Path(result["temporaryDirectory"]) == Path(env["TMPDIR"])
@@ -92,12 +92,12 @@ with tempfile.TemporaryDirectory(prefix="TEST_ONLY-atm-gui-", dir="/private/tmp"
     assert fixture.parent == root / "tmp"
     assert observed == ["original", "applied", "original"], observed
     assert (fixture / "synthetic.jsonc").read_bytes() == original
-    backups = list((fixture / "backups").glob("*.lkmbackup"))
+    backups = list((fixture / "backups").glob("*.atmbackup"))
     assert len(backups) == 2
     for backup in backups:
         assert backup.stat().st_mode & 0o777 == 0o600
         assert b"FAKE_DEMO_" not in backup.read_bytes()
-    assert not list(fixture.glob(".lkm-*.tmp"))
+    assert not list(fixture.glob(".atm-*.tmp"))
     assert not list((root / "home").rglob("vault.lock"))
     try:
         os.killpg(process.pid, 0)
