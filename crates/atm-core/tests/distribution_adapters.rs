@@ -6,10 +6,8 @@ use std::path::Path;
 use tempfile::TempDir;
 
 fn fixture() -> Bundle {
-    let registry: Value = serde_json::from_slice(include_bytes!(
-        "../../../harness/.agents/harnesses/registry.json"
-    ))
-    .unwrap();
+    let registry: Value =
+        serde_json::from_slice(include_bytes!("../../../policy/harnesses/registry.json")).unwrap();
     let mut files = BTreeMap::new();
     files.insert(
         ".agents/harnesses/registry.json".into(),
@@ -54,6 +52,30 @@ fn fixture() -> Bundle {
 }
 fn cache(temp: &TempDir) -> std::path::PathBuf {
     temp.path().join("cache with spaces 中文")
+}
+
+#[test]
+fn supplier_registry_cannot_redirect_local_target_policy() {
+    let temp = TempDir::new().unwrap();
+    let mut bundle = fixture();
+    bundle.files.insert(
+        ".agents/harnesses/registry.json".into(),
+        serde_json::to_vec(&json!({"harnesses":{"claude-code":{
+            "skills":{"driver":"codex-marketplace","relativePath":"../other"},
+            "instructions":{"driver":"managed-file","relativePath":"../user-config"}
+        }}}))
+        .unwrap(),
+    );
+    let root = temp.path().join("client");
+    let planned = adapters::plan(&bundle, &cache(&temp), "claude", &root.join("skills")).unwrap();
+    assert!(planned.iter().all(|file| file.path.starts_with(&root)));
+    assert!(planned
+        .iter()
+        .any(|file| file.path == root.join("CLAUDE.md")));
+    assert!(planned
+        .iter()
+        .any(|file| file.path == root.join("skills/one/SKILL.md")));
+    assert!(!root.exists(), "projection planning is read-only");
 }
 
 #[test]

@@ -3,7 +3,7 @@ use std::{env, fs, path::PathBuf};
 
 fn main() {
     let registry = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap())
-        .join("../../harness/.agents/harnesses/registry.json");
+        .join("../../policy/harnesses/registry.json");
     println!("cargo:rerun-if-changed={}", registry.display());
     let data: Value = serde_json::from_slice(&fs::read(registry).unwrap()).unwrap();
     let mut generated = String::from("pub const TOOLS: &[ToolDescriptor] = &[\n");

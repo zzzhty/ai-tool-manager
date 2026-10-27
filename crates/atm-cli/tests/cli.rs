@@ -778,6 +778,78 @@ mod rust_distribution {
     }
 
     #[test]
+    fn content_export_import_and_offline_cache_are_separate_from_installation() {
+        let env = Env::new();
+        let root = payload(&env);
+        let old: serde_json::Value =
+            serde_json::from_slice(&fs::read(root.join("distribution-manifest.json")).unwrap())
+                .unwrap();
+        let content = serde_json::json!({"schemaVersion":1,"product":"omh-content","releaseVersion":old["releaseVersion"],"packages":old["packages"],"runtimeGroups":old["runtimeGroups"],"runtimeBindings":old["runtimeBindings"],"historicalIdentities":old["historicalIdentities"],"compositions":{"default":old["packages"].as_array().unwrap().iter().map(|p|p["name"].clone()).collect::<Vec<_>>()}});
+        fs::write(
+            root.join("content-manifest.json"),
+            serde_json::to_vec(&content).unwrap(),
+        )
+        .unwrap();
+        fs::write(root.join("LICENSE"), "TEST_ONLY export license").unwrap();
+        let archive = env.sources.path().join("content.omh");
+        let lock = archive.with_extension("lock.json");
+        assert_ok(&native(
+            &env,
+            &[
+                "harness",
+                "export",
+                "--source",
+                root.to_str().unwrap(),
+                "--output",
+                archive.to_str().unwrap(),
+                "--repository",
+                "https://github.com/TEST_ONLY/content",
+                "--revision",
+                &"a".repeat(40),
+                "--url",
+                "https://github.com/TEST_ONLY/content/releases/download/test/content.omh",
+            ],
+        ));
+        assert!(!manager_home(&env).exists());
+        let result = native(
+            &env,
+            &[
+                "harness",
+                "import",
+                "--archive",
+                archive.to_str().unwrap(),
+                "--lock",
+                lock.to_str().unwrap(),
+            ],
+        );
+        assert_ok(&result);
+        let imported: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+        assert_eq!(imported["selected"], false);
+        assert!(!manager_home(&env).join("state/distribution.json").exists());
+        assert!(!env.home.path().join(".codex").exists());
+        fs::remove_file(archive).unwrap();
+        assert_ok(&native(
+            &env,
+            &[
+                "harness",
+                "fetch",
+                "--lock",
+                lock.to_str().unwrap(),
+                "--output",
+                imported["source"].as_str().unwrap(),
+            ],
+        ));
+        bootstrap(&env, Path::new(imported["source"].as_str().unwrap()));
+        assert_ok(&native(
+            &env,
+            &["install", "skills", "--harness", "claude-code,codex"],
+        ));
+        assert_ok(&native(&env, &["harness", "--", "doctor"]));
+        assert!(!manager_home(&env).join("venv").exists());
+        assert!(!env.home.path().join(".codex/hooks.json").exists());
+    }
+
+    #[test]
     fn static_lifecycle_uses_only_complete_offline_cache_without_python() {
         let env = Env::new();
         let source = payload(&env);

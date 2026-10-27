@@ -15,6 +15,7 @@
 Harness 分发由 `atm-core::distribution::Service` 的 Rust 实现负责，CLI 与 GUI 调用同一 application service。`harness/` 保存声明式内容和可选 payload runtime；分发不调用 Python `machine.py`、`engine.py` 或隐藏 fallback。默认 manager home 为 `~/.atm`，可用绝对路径 `ATM_HOME` 覆盖。
 
 - `atm harness bootstrap` 校验版本化 manifest 和每个内容摘要，生成 canonical catalog JSON，再缓存选定发布内容；`sync` 更新缓存引用。两者都不需要 Python、不下载解释器、不启用 hooks。完整缓存可离线安装、更新、卸载静态 skills。
+- `atm harness export/import/fetch` 使用独立内容清单和版本锁；导入只建立缓存，不写安装记录或启用 hooks。目标路径策略固定在 ATM 的 `policy/harnesses/`，远端内容不能决定写入位置。契约与兼容边界见 [OMH 内容契约](docs/OMH_CONTENT_CONTRACT.md)。
 - Rust 拥有来源校验、版本锁定、缓存、计划、应用、适配器、receipt、锁及 journal 恢复。一个物理目标只有一个 owner；同名外来文件和用户修改会阻止变更，不按文件名猜测接管。跨文件操作由 journal 保护，不宣称完全原子；中断后显式执行 `atm harness recover`。
 - 状态查询只读记录，不创建安装、不探测 Python、不解释为实时健康。主动 `check`/`doctor` 检查已记录文件与缓存；发现旧 skill-watcher hook 时提示显式退役，不启动 Python。GUI 仍要求明确目标与一次操作确认。
 - Python 只属于声明了它的内容脚本。`runtime prepare` 需要显式解释器绝对路径，按依赖组和内容版本创建最终路径 venv，检查成功后才切换引用。外部 venv 只验证；不修改项目 `.venv` 或全局 Python。离线缺 wheel/依赖会明确报错，旧有效环境保留。

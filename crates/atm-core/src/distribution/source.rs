@@ -10,6 +10,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub mod hub;
+
 const MANIFEST: &str = "distribution-manifest.json";
 const ALGORITHM: &str = "sha256-atm-distribution-v1";
 const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
@@ -250,6 +252,12 @@ fn parse_manifest(bytes: &[u8]) -> Result<Manifest> {
     Ok(manifest)
 }
 fn allowed(path: &str, manifest: &Manifest) -> bool {
+    if manifest.schema_version == 2 && path.starts_with(".agents/harnesses/") {
+        return false;
+    }
+    if manifest.schema_version == 2 && path == "LICENSE" {
+        return true;
+    }
     if matches!(
         path,
         "VERSION"
@@ -311,7 +319,7 @@ pub fn locate() -> Result<PathBuf> {
     if let Some(raw) = std::env::var_os("ATM_ENGINE_SOURCE").filter(|s| !s.is_empty()) {
         let root = PathBuf::from(raw);
         check_path(&root, false)?;
-        if !root.join(MANIFEST).is_file() {
+        if !has_payload(&root) {
             return Err(missing());
         }
         return Ok(root);
@@ -319,7 +327,7 @@ pub fn locate() -> Result<PathBuf> {
     if let Ok(executable) = std::env::current_exe() {
         if let Some(parent) = executable.parent() {
             let root = parent.join("harness");
-            if root.join(MANIFEST).is_file() {
+            if has_payload(&root) {
                 check_path(&root, false)?;
                 return Ok(root);
             }
@@ -329,7 +337,7 @@ pub fn locate() -> Result<PathBuf> {
     {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../harness");
         let root = root.canonicalize().map_err(|_| missing())?;
-        if root.join(MANIFEST).is_file() {
+        if has_payload(&root) {
             check_path(&root, false)?;
             return Ok(root);
         }
@@ -337,15 +345,40 @@ pub fn locate() -> Result<PathBuf> {
     Err(missing())
 }
 
+fn has_payload(root: &Path) -> bool {
+    root.join(MANIFEST).is_file()
+        || (root.join("content-manifest.json").is_file()
+            && root.join("content-lock.json").is_file())
+}
+
 /// Verify every locked byte before producing a usable payload or catalog. The
 /// caller's cache identity pins this package on later operations and offline use.
 pub fn load(root: &Path) -> Result<Bundle> {
     check_path(root, false)?;
+    if root.join("content-lock.json").exists() {
+        if root.join(MANIFEST).exists() {
+            return Err(invalid());
+        }
+        return hub::load(root);
+    }
     let manifest_bytes = read_file(&root.join(MANIFEST))?;
     load_manifest(root, manifest_bytes)
 }
 fn load_manifest(root: &Path, manifest_bytes: Vec<u8>) -> Result<Bundle> {
     let manifest = parse_manifest(&manifest_bytes)?;
+    verify_bundle(
+        root,
+        manifest,
+        BTreeMap::from([(MANIFEST.to_owned(), manifest_bytes)]),
+        None,
+    )
+}
+fn verify_bundle(
+    root: &Path,
+    manifest: Manifest,
+    metadata: BTreeMap<String, Vec<u8>>,
+    hub_identity: Option<String>,
+) -> Result<Bundle> {
     let mut files = BTreeMap::new();
     let mut folded = BTreeMap::new();
     let mut total = 0usize;
@@ -451,7 +484,6 @@ fn load_manifest(root: &Path, manifest_bytes: Vec<u8>) -> Result<Bundle> {
         "VERSION",
         "agents/global-instructions.md",
         "agents/operating-principles.md",
-        ".agents/harnesses/registry.json",
         ".agents/plugins/marketplace.json",
         ".agents/plugins/install-manifest.json",
         ".agents/plugins/distribution-identity.json",
@@ -459,6 +491,9 @@ fn load_manifest(root: &Path, manifest_bytes: Vec<u8>) -> Result<Bundle> {
         if !files.contains_key(required) {
             return Err(invalid());
         }
+    }
+    if manifest.schema_version == 1 && !files.contains_key(".agents/harnesses/registry.json") {
+        return Err(invalid());
     }
     if std::str::from_utf8(&files["VERSION"])
         .map_err(|_| invalid())?
@@ -489,9 +524,9 @@ fn load_manifest(root: &Path, manifest_bytes: Vec<u8>) -> Result<Bundle> {
         record(&mut digest, path.as_bytes());
         record(&mut digest, bytes);
     }
-    let identity = format!("{:x}", digest.finalize());
+    let identity = hub_identity.unwrap_or_else(|| format!("{:x}", digest.finalize()));
     let catalog = catalog(&manifest, &files, &identity)?;
-    files.insert(MANIFEST.to_owned(), manifest_bytes);
+    files.extend(metadata);
     Ok(Bundle {
         identity,
         release: manifest.release_version.clone(),

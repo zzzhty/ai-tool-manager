@@ -48,10 +48,7 @@ fn fixture() -> TempDir {
     json_write(
         root,
         ".agents/harnesses/registry.json",
-        serde_json::from_slice(include_bytes!(
-            "../../../harness/.agents/harnesses/registry.json"
-        ))
-        .unwrap(),
+        serde_json::from_slice(include_bytes!("../../../policy/harnesses/registry.json")).unwrap(),
     );
     json_write(root, ".agents/harnesses/registry.schema.json", json!({}));
     json_write(
