@@ -1,4 +1,0 @@
-interface:
-  display_name: "Long Running Goal"
-  short_description: "Run continuation-ready staged goals and strict sequences"
-  default_prompt: "Use $long-running-goal to create, upgrade, execute, resume, evolve, or close a continuation-ready staged goal or strict serial Long-Running Goal Sequence."

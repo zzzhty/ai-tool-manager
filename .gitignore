@@ -12,9 +12,8 @@ vault.lock
 .aws/
 .codex/
 .agents/
-# Vendored harness engine ships its own registry; re-include it explicitly
-# (a directory-level exclude like `.agents/` cannot be re-included by file rules).
-!harness/.agents/
+# Verified generated OMH payload; authored in the independent content repository.
+/harness/
 
 node_modules/
 /target/

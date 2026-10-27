@@ -7,7 +7,7 @@ mod service;
 pub mod source;
 mod transaction;
 pub use service::owns_path;
-pub use service::Service;
+pub use service::{RelocationPlan, Service};
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;

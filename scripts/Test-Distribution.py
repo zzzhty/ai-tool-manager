@@ -15,6 +15,12 @@ import sys
 import tempfile
 
 
+def read_content_manifest(source: Path) -> dict:
+    content = json.loads((source / "content-manifest.json").read_text(encoding="utf-8"))
+    lock = json.loads((source / "content-lock.json").read_text(encoding="utf-8"))
+    return {**content, "files": lock["files"], "directories": lock["directories"]}
+
+
 def verify_runtime_payload(cache: Path, manifest: dict, identity: str, env: dict, root: Path):
     """Validate the copied runtime and Rust snapshot without preparing any venv."""
     catalog = json.loads((cache / "canonical-catalog.json").read_text(encoding="utf-8"))
@@ -54,9 +60,28 @@ def main():
     # Native command JSON and CI logs use UTF-8 even with a Windows legacy locale.
     sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("archive", type=Path)
+    parser.add_argument("archive", type=Path, nargs="?")
+    parser.add_argument("--payload-only", type=Path, help="check a verified payload with an isolated runner")
+    parser.add_argument("--cli", type=Path)
     parser.add_argument("--cli-only", action="store_true", help="label an explicit synthetic CLI-only archive; no desktop release claim")
     args = parser.parse_args()
+    if args.payload_only:
+        if not args.cli:
+            parser.error("--payload-only requires --cli")
+        source = args.payload_only.resolve()
+        with tempfile.TemporaryDirectory(prefix="ATM_TEST_ONLY_payload_") as temporary:
+            root = Path(temporary).resolve()
+            env = {key: value for key, value in os.environ.items()
+                   if key.upper() in {"SYSTEMROOT", "WINDIR", "TEMP", "TMP"}}
+            env.update(PATH="", HOME=str(root), USERPROFILE=str(root), ATM_HOME=str(root / 'manager'))
+            result = subprocess.run([str(args.cli.resolve()), 'harness', 'bootstrap', '--source', str(source)],
+                                    env=env, capture_output=True, text=True, encoding='utf-8', check=True)
+            status = json.loads(result.stdout)
+            verify_runtime_payload(Path(status['manager']['repository']), read_content_manifest(source),
+                                   status['manager']['revision'], env, root)
+        return
+    if args.archive is None:
+        parser.error("archive or --payload-only is required")
     with tempfile.TemporaryDirectory(prefix="atm distribution Unicode 测试 ") as temporary:
         # macOS's default /var temporary path is a system symlink. Keep the
         # tested payload and manager paths physical without relaxing ownership.
@@ -95,9 +120,9 @@ def main():
         assert not (source / "scripts").exists(), "installer scripts leaked into payload"
         assert not (source / "tests").exists()
         source_info = json.loads(run("harness", "verify-source").stdout)
-        manifest = json.loads((source / "distribution-manifest.json").read_text(encoding="utf-8"))
+        manifest = read_content_manifest(source)
         actual = {path.relative_to(source).as_posix() for path in source.rglob("*") if path.is_file()}
-        assert actual == {entry["path"] for entry in manifest["files"]} | {"distribution-manifest.json"}
+        assert actual == {entry["path"] for entry in manifest["files"]} | {"content-manifest.json", "content-lock.json"}
         if not args.cli_only:
             resources = json.loads(run("--verify-distribution", program=desktop).stdout)
             assert resources["releaseBuild"] and not resources["guiInitialized"] and not resources["storageInitialized"]

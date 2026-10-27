@@ -753,11 +753,6 @@ mod rust_distribution {
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(path, bytes).unwrap();
         }
-        fs::copy(
-            source.join("distribution-manifest.json"),
-            target.join("distribution-manifest.json"),
-        )
-        .unwrap();
         target
     }
 
@@ -778,19 +773,63 @@ mod rust_distribution {
     }
 
     #[test]
+    fn manager_home_handoff_previews_and_applies_without_python_or_hooks() {
+        let env = Env::new();
+        let run = |args: &[&str]| {
+            let result = native(&env, args);
+            assert!(
+                result.status.success(),
+                "handoff command {args:?} failed: {}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            result
+        };
+        let source = payload(&env);
+        bootstrap(&env, &source);
+        run(&["install", "skills", "--harness", "claude-code,codex"]);
+        let destination = env.home.path().join("new manager");
+        let args = [
+            "harness",
+            "migrate",
+            "--to",
+            destination.to_str().unwrap(),
+            "--source",
+            source.to_str().unwrap(),
+        ];
+        let mut preview = args.to_vec();
+        preview.push("--dry-run");
+        let preview = run(&preview);
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&preview.stdout).unwrap()
+                ["destinationHome"],
+            serde_json::json!(destination)
+        );
+        assert!(!destination.exists());
+        run(&args);
+        assert!(!manager_home(&env).join("state/distribution.json").exists());
+        assert!(!native(&env, &["harness", "status"]).status.success());
+        run(&["harness", "status", "--home", destination.to_str().unwrap()]);
+        let plan = run(&[
+            "harness",
+            "plan",
+            "refresh",
+            "--harness",
+            "claude-code,codex",
+            "--home",
+            destination.to_str().unwrap(),
+        ]);
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&plan.stdout).unwrap()["files"],
+            serde_json::json!([])
+        );
+        assert!(!env.home.path().join(".openclaw").exists());
+        assert!(!destination.join("runtimes").exists());
+    }
+
+    #[test]
     fn content_export_import_and_offline_cache_are_separate_from_installation() {
         let env = Env::new();
         let root = payload(&env);
-        let old: serde_json::Value =
-            serde_json::from_slice(&fs::read(root.join("distribution-manifest.json")).unwrap())
-                .unwrap();
-        let content = serde_json::json!({"schemaVersion":1,"product":"omh-content","releaseVersion":old["releaseVersion"],"packages":old["packages"],"runtimeGroups":old["runtimeGroups"],"runtimeBindings":old["runtimeBindings"],"historicalIdentities":old["historicalIdentities"],"compositions":{"default":old["packages"].as_array().unwrap().iter().map(|p|p["name"].clone()).collect::<Vec<_>>()}});
-        fs::write(
-            root.join("content-manifest.json"),
-            serde_json::to_vec(&content).unwrap(),
-        )
-        .unwrap();
-        fs::write(root.join("LICENSE"), "TEST_ONLY export license").unwrap();
         let archive = env.sources.path().join("content.omh");
         let lock = archive.with_extension("lock.json");
         assert_ok(&native(

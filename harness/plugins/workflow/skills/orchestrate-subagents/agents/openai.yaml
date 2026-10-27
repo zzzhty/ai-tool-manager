@@ -1,4 +1,0 @@
-interface:
-  display_name: "Orchestrate Subagents"
-  short_description: "Coordinate user-requested Codex subagents"
-  default_prompt: "Use $orchestrate-subagents to create bounded task_name assignments with prompt-declared permissions, wait for results, and consolidate evidence, blockers, risks, validation gaps, and next actions."

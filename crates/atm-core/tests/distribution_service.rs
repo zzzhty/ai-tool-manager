@@ -466,7 +466,7 @@ fn written_receipt_conforms_to_published_contract() {
     service.bootstrap(content.path(), false).unwrap();
     service.execute("install", &targets()).unwrap();
     let schema: Value = serde_json::from_slice(include_bytes!(
-        "../../../harness/contracts/receipt.schema.json"
+        "../../../policy/distribution/receipt.schema.json"
     ))
     .unwrap();
     let state: Value =
@@ -616,4 +616,183 @@ fn retired_hooks_refuse_enable_and_require_removal_before_content_sync() {
         fs::read(home.join("logs/history.jsonl")).unwrap(),
         b"keep old evidence\n"
     );
+}
+
+#[test]
+fn manager_relocation_preserves_history_and_has_one_owner_with_stable_client_plan() {
+    let content = fixture();
+    let (temp, service, old, _) = environment();
+    let user = temp.path().join("user home");
+    let targets = vec!["claude-code".into(), "codex".into()];
+    service.bootstrap(content.path(), false).unwrap();
+    service.execute("install", &targets).unwrap();
+    write(&old, "historical/log.jsonl", b"keep historical evidence\n");
+    write(
+        &user,
+        ".codex/hooks.json",
+        b"{\"hooks\":{\"Other\":[{\"user\":true}]}}\n",
+    );
+    let old_receipt = fs::read(old.join("state/distribution.json")).unwrap();
+    // A manager move may also select the newly published content release.
+    fs::write(content.path().join("VERSION"), "1.0.1\n").unwrap();
+    let manifest_path = content.path().join("distribution-manifest.json");
+    let mut manifest: Value = serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+    manifest["releaseVersion"] = json!("1.0.1");
+    fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    update_plugin_identity(content.path());
+    source::seal(content.path()).unwrap();
+    let new = user.join(".atm");
+    let plan = service.plan_relocation(&new, content.path()).unwrap();
+    assert!(!new.exists());
+    assert_eq!(plan.targets, targets);
+    assert!(plan.runtime_groups.is_empty());
+    let result = service.relocate(plan, None, true).unwrap();
+    assert_eq!(result["migrated"], true);
+    assert!(!old.join("state/distribution.json").exists());
+    assert!(old.join("state/relocated.json").is_file());
+    assert_eq!(
+        fs::read(old.join("historical/log.jsonl")).unwrap(),
+        b"keep historical evidence\n"
+    );
+    assert_eq!(
+        service.bootstrap(content.path(), false).unwrap_err().code,
+        "HARNESS_HOME_RELOCATED"
+    );
+    let owner = Service::new(new.clone(), user.clone()).unwrap();
+    assert_eq!(owner.diagnose().unwrap()["passed"], true);
+    assert!(owner.plan("refresh", &targets).unwrap().files.is_empty());
+    assert_eq!(owner.status().unwrap()["hooksEnabled"], false);
+    let record: Value =
+        serde_json::from_slice(&fs::read(new.join("state/relocation.json")).unwrap()).unwrap();
+    assert_eq!(record["completed"], true);
+    assert_eq!(
+        record["previous"],
+        serde_json::from_slice::<Value>(&old_receipt).unwrap()
+    );
+    #[cfg(unix)]
+    {
+        let previous: Value = serde_json::from_slice(&old_receipt).unwrap();
+        let old_plugin_file = previous["receipts"]
+            .as_object()
+            .unwrap()
+            .values()
+            .flat_map(|r| r["files"].as_object().unwrap().keys())
+            .find(|p| p.ends_with("/.codex-plugin/plugin.json"))
+            .unwrap();
+        let old_plugin_root = Path::new(old_plugin_file)
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap();
+        assert!(!old_plugin_root.exists());
+        let foreign = temp.path().join("user cache");
+        fs::create_dir(&foreign).unwrap();
+        std::os::unix::fs::symlink(&foreign, old_plugin_root).unwrap();
+        assert!(
+            owner.status().is_ok(),
+            "history is not the current ownership authority"
+        );
+    }
+    assert!(!user.join(".openclaw").exists());
+    assert_eq!(
+        fs::read(user.join(".codex/hooks.json")).unwrap(),
+        b"{\"hooks\":{\"Other\":[{\"user\":true}]}}\n"
+    );
+    // Archiving the old home after acceptance must not make a later recovery
+    // command recreate it. Retained recovery history belongs to the new owner.
+    fs::rename(&old, temp.path().join("archive")).unwrap();
+    owner.recover().unwrap();
+    assert!(!old.exists());
+    assert_eq!(
+        service.bootstrap(content.path(), false).unwrap_err().code,
+        "HARNESS_HOME_RELOCATED"
+    );
+    assert!(service.recover().is_err());
+    assert!(!old.exists());
+}
+
+#[test]
+fn relocation_refuses_existing_destinations_edits_and_preview_apply_races() {
+    let content = fixture();
+    let (temp, service, old, skills) = environment();
+    service.bootstrap(content.path(), false).unwrap();
+    service.execute("install", &targets()).unwrap();
+    let new = temp.path().join("destination");
+    let preview = service.plan_relocation(&new, content.path()).unwrap();
+    write(&new, "user.txt", b"keep me");
+    assert!(service.relocate(preview, None, true).is_err());
+    assert!(service.plan_relocation(&new, content.path()).is_err());
+    assert_eq!(fs::read(new.join("user.txt")).unwrap(), b"keep me");
+    assert!(old.join("state/distribution.json").is_file());
+    let second = temp.path().join("second destination");
+    let preview = service.plan_relocation(&second, content.path()).unwrap();
+    fs::write(skill_path(&skills), b"user edit").unwrap();
+    assert!(service.relocate(preview, None, true).is_err());
+    assert_eq!(fs::read(skill_path(&skills)).unwrap(), b"user edit");
+    assert!(old.join("state/distribution.json").is_file());
+    assert!(!old.join("state/relocated.json").exists());
+    assert!(!second.join("state/distribution.json").exists());
+    let prepared = Service::new(second.clone(), temp.path().join("user home")).unwrap();
+    assert_eq!(
+        prepared.bootstrap(content.path(), false).unwrap_err().code,
+        "HARNESS_RELOCATION_PENDING"
+    );
+    assert_eq!(prepared.recover().unwrap()["activeHome"], json!(old));
+    assert!(!second.join("state/distribution.json").exists());
+    assert!(service.plan_relocation(&second, content.path()).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn relocation_rebuilds_selected_runtimes_at_final_paths_without_moving_old_environments() {
+    use std::os::unix::fs::PermissionsExt;
+    let content = fixture();
+    let manifest_path = content.path().join("distribution-manifest.json");
+    let mut manifest: Value = serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+    manifest["runtimeGroups"] =
+        json!([{"id":"workflow","minimumPython":[3,11],"imports":[],"requirementsLock":null}]);
+    fs::write(manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    source::seal(content.path()).unwrap();
+    let (temp, service, old, _) = environment();
+    let python = temp.path().join("test-only-python");
+    fs::write(&python, r#"#!/bin/sh
+if [ "$3" = "-m" ] && [ "$4" = "venv" ]; then
+  /bin/mkdir -p "$5/bin"
+  /bin/cp "$0" "$5/bin/python"
+  /bin/chmod 755 "$5/bin/python"
+  /usr/bin/printf 'home = /fake/base\n' > "$5/pyvenv.cfg"
+  exit 0
+fi
+case "$0" in */bin/python) prefix=$(/usr/bin/dirname "$(/usr/bin/dirname "$0")");; *) prefix=/fake/base;; esac
+/usr/bin/printf '{"version":[3,11],"prefix":"%s","basePrefix":"/fake/base","distributions":{},"modules":{}}\n' "$prefix"
+"#).unwrap();
+    fs::set_permissions(&python, fs::Permissions::from_mode(0o755)).unwrap();
+    service.bootstrap(content.path(), false).unwrap();
+    service.execute("install", &targets()).unwrap();
+    let before = service
+        .prepare_runtime("workflow", &python, None, true)
+        .unwrap();
+    let old_python = std::path::PathBuf::from(before["prepared"]["python"].as_str().unwrap());
+    let destination = temp.path().join("new manager");
+    let plan = service
+        .plan_relocation(&destination, content.path())
+        .unwrap();
+    assert_eq!(plan.runtime_groups, vec!["workflow"]);
+    assert_eq!(
+        service.relocate(plan.clone(), None, true).unwrap_err().code,
+        "HARNESS_PYTHON_REQUIRED"
+    );
+    assert!(!destination.exists());
+    service.relocate(plan, Some(&python), true).unwrap();
+    let owner = Service::new(destination.clone(), temp.path().join("user home")).unwrap();
+    let status = owner.status().unwrap();
+    let new_python =
+        std::path::PathBuf::from(status["runtimes"]["workflow"]["python"].as_str().unwrap());
+    assert!(new_python.starts_with(&destination));
+    assert!(new_python.is_file());
+    assert!(old_python.starts_with(&old));
+    assert!(old_python.is_file());
+    assert_ne!(new_python, old_python);
+    assert!(owner.plan("refresh", &targets()).unwrap().files.is_empty());
+    assert_eq!(status["hooksEnabled"], false);
 }

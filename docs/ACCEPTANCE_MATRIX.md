@@ -75,9 +75,10 @@ Cargo 使用 `--locked --offline`。默认隔离 CARGO_HOME 必须已有所需�
 回归以独立子进程注入外部假目录并检查目录未变，不在并行 Rust 测试中修改全局环境。
 
 当前 harness bridge 测试不再提供真实 Python 引擎 opt-in。`ATM_SKILLS_LIVE=1` 的真实
-本地盘点入口仍须单独授权，`Verify-Local.sh` 强制关闭。保留的
-`ATM_ENGINE_PYTHON_STRICT=1` 仅要求 payload/开发验证所需 Python 模块可用；它不是
-运行 Rust 分发的前提。Python 测试使用临时目录；缺开发依赖时必须记录跳过而不是通过。
+本地盘点入口仍须单独授权，`Verify-Local.sh` 强制关闭。先用 `Prepare-Content.py`
+生成锁定的 OMH payload，再运行本地验证。内容作者测试由独立 OMH 仓库维护；ATM CI
+从锁定 revision 运行其 Python 测试。本地验证使用明确的 runner 检查已导入 runtime，
+静态 CLI 使用空 PATH。缺依赖导致必要检查失败，不能记为通过。
 
 ### 原生平台流程
 

@@ -1,4 +1,0 @@
-interface:
-  display_name: "SOP"
-  short_description: "Create, update, or execute reusable procedures"
-  default_prompt: "Use $sop to create, update, validate, or execute a reusable procedure with explicit inputs, steps, validation, and stop or escalation boundaries."

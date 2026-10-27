@@ -3,6 +3,7 @@
     ".gitattributes",
     ".github/workflows/rust-ci.yml",
     ".gitignore",
+    "AGENTS.md",
     "Cargo.lock",
     "Cargo.toml",
     "LICENSE",
@@ -35,6 +36,7 @@
     "apps/desktop/tests/usage.test.ts",
     "apps/desktop/tsconfig.json",
     "apps/desktop/vite.config.ts",
+    "content/omh.lock.json",
     "crates/atm-cli/Cargo.toml",
     "crates/atm-cli/src/main.rs",
     "crates/atm-cli/tests/cli.rs",
@@ -52,6 +54,7 @@
     "crates/atm-core/src/distribution/mod.rs",
     "crates/atm-core/src/distribution/runtime.rs",
     "crates/atm-core/src/distribution/service.rs",
+    "crates/atm-core/src/distribution/service/relocation.rs",
     "crates/atm-core/src/distribution/source.rs",
     "crates/atm-core/src/distribution/source/hub.rs",
     "crates/atm-core/src/distribution/transaction.rs",
@@ -101,20 +104,32 @@
     "docs/ACCEPTANCE_MATRIX.md",
     "docs/CODEX_GLM_LINUX.md",
     "docs/HARNESS_RUST_MIGRATION.md",
+    "docs/HARNESS_USAGE.md",
     "docs/MACOS.md",
     "docs/OMH_CONTENT_CONTRACT.md",
     "docs/RUST_MIGRATION.md",
     "docs/RUST_WIP_HANDOFF.md",
+    "docs/adr/0027-atm-embedded-distribution.md",
+    "docs/adr/0028-retire-skill-watcher-hooks.md",
+    "docs/adr/0028-rust-distribution-and-optional-payload-runtimes.md",
+    "docs/adr/0029-locked-content-and-manager-home-handoff.md",
+    "docs/agents/internal-identifier-evolution.md",
     "docs/pending-platform-work.md",
     "docs/publication-safety.md",
     "docs/\u6e90\u7801\u5305\u4e0e\u900f\u660e\u52a0\u5bc6\u6838\u67e5.md",
     "docs/\u9a8c\u8bc1\u62a5\u544a.md",
     "package-lock.json",
     "package.json",
+    "policy/distribution/README.md",
+    "policy/distribution/canonical-catalog.schema.json",
+    "policy/distribution/distribution-manifest.schema.json",
+    "policy/distribution/receipt.schema.json",
+    "policy/distribution/runtime.schema.json",
     "policy/harnesses/registry.json",
     "policy/harnesses/registry.schema.json",
     "scripts/Audit-TrackedSource.ps1",
     "scripts/Package-Release.py",
+    "scripts/Prepare-Content.py",
     "scripts/Test-Distribution.py",
     "scripts/Test-LinuxGui.sh",
     "scripts/Test-LinuxKeyring.sh",
@@ -124,13 +139,5 @@
     "scripts/Verify-MacOS.sh",
     "scripts/source-manifest.json"
   ],
-  "directories": [
-    {
-      "path": "harness",
-      "exclude": [
-        ".git",
-        "__pycache__"
-      ]
-    }
-  ]
+  "directories": []
 }

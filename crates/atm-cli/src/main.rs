@@ -47,6 +47,7 @@ const USAGE: &str = "用法（动词优先；--harness 选择内置引擎，省�
   atm harness adopt [--home PATH] [--retire-missing IDS] [--dry-run]
                                                       # 交接旧状态；仅显式退役根目录缺失的目标
   atm harness status|recover [--json] [--home PATH]
+  atm harness migrate --to <ABS_HOME> [--source <ABS_PATH>] [--home PATH] [--python <ABS_PATH>] [--offline] [--dry-run]
   atm harness plan <install|refresh|remove|repair> --harness <ID>[,<ID>...]
   atm harness runtime prepare <GROUP> --python <ABS_PATH> [--external-venv <ABS_PATH>] [--offline]
   atm harness verify-source [--source <ABS_PATH>]       # 校验发布内容
@@ -515,6 +516,37 @@ fn dispatch_harness(rest: &[String]) -> Result<i32> {
     }
     if subcommand == "runtime" {
         return prepare_runtime(rest);
+    }
+    if subcommand == "migrate" {
+        let parsed = parse(
+            rest,
+            &[
+                "--home",
+                "--to",
+                "--source",
+                "--python",
+                "--offline",
+                "--dry-run",
+            ],
+        )?;
+        if !parsed.positionals.is_empty() {
+            return Err(usage_error());
+        }
+        let destination = PathBuf::from(value_of(&parsed, "--to").ok_or_else(usage_error)?);
+        if !destination.is_absolute() {
+            return Err(usage_error());
+        }
+        let service = distribution_service(&parsed)?;
+        let plan = service.plan_relocation(&destination, &selected_source(&parsed)?)?;
+        if has_flag(&parsed, "--dry-run") {
+            return print_result(&serde_json::to_value(plan).map_err(|_| usage_error())?);
+        }
+        let python = value_of(&parsed, "--python").map(PathBuf::from);
+        return print_result(&service.relocate(
+            plan,
+            python.as_deref(),
+            has_flag(&parsed, "--offline"),
+        )?);
     }
     if matches!(subcommand, "export" | "fetch" | "import") {
         return content_operation(subcommand, rest);

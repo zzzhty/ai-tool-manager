@@ -808,6 +808,27 @@ pub fn apply(home: &Path, changes: Vec<Change>) -> Result<()> {
 }
 
 #[cfg(test)]
+pub(super) fn interrupt_after(home: &Path, changes: Vec<Change>, count: usize) -> Result<()> {
+    let journal = Journal {
+        schema_version: JOURNAL_SCHEMA,
+        product: "atm-harness".into(),
+        transaction_id: uuid::Uuid::new_v4().to_string(),
+        changes,
+        committed: false,
+    };
+    let encoded = preflight_journal(home, &journal)?;
+    atomic_write(&journal_path(home), &encoded)?;
+    for (index, change) in journal.changes.iter().enumerate().take(count) {
+        if needs_swap(change) {
+            forward_swap(&journal, index)?;
+        } else {
+            replace_simple(change, true)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     fn journal(changes: Vec<Change>) -> Journal {
