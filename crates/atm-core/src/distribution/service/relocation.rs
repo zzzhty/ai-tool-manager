@@ -105,10 +105,16 @@ impl Service {
             return Err(incomplete());
         }
         transaction::safe_path(&destination.join(RESERVATION))?;
-        let destination = physical_path(destination)?;
-        if physical_overlap(&self.home, &destination) {
+        let physical_destination = physical_path(destination)?;
+        if physical_overlap(&physical_path(&self.home)?, &physical_destination) {
             return Err(invalid());
         }
+        // Service preserves the caller's manager path in cache references. Use
+        // physical paths for overlap checks, but retain that same spelling in
+        // the reservation and projection. Windows may expand an 8.3 temp path
+        // during canonicalization; reopening the requested --home must still
+        // match its reservation and produce an unchanged refresh plan.
+        let destination = destination.to_path_buf();
         let original = self.state()?;
         // Retired hook removal is a separate explicit ownership operation.
         if original.hooks.is_some() || original.receipts.is_empty() {
@@ -141,7 +147,7 @@ impl Service {
             let (_, skills) = self.root(&receipt.target)?;
             if skills.parent() != Some(receipt.root.as_path())
                 || !receipt.root.is_dir()
-                || physical_overlap(&receipt.root, &destination)
+                || physical_overlap(&receipt.root, &physical_destination)
             {
                 return Err(transaction::conflict());
             }

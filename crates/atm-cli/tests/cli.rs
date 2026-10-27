@@ -775,12 +775,18 @@ mod rust_distribution {
     #[test]
     fn manager_home_handoff_previews_and_applies_without_python_or_hooks() {
         let env = Env::new();
+        let run = |args: &[&str]| {
+            let result = native(&env, args);
+            assert!(
+                result.status.success(),
+                "handoff command {args:?} failed: {}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            result
+        };
         let source = payload(&env);
         bootstrap(&env, &source);
-        assert_ok(&native(
-            &env,
-            &["install", "skills", "--harness", "claude-code,codex"],
-        ));
+        run(&["install", "skills", "--harness", "claude-code,codex"]);
         let destination = env.home.path().join("new manager");
         let args = [
             "harness",
@@ -792,28 +798,26 @@ mod rust_distribution {
         ];
         let mut preview = args.to_vec();
         preview.push("--dry-run");
-        assert_ok(&native(&env, &preview));
+        let preview = run(&preview);
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&preview.stdout).unwrap()
+                ["destinationHome"],
+            serde_json::json!(destination)
+        );
         assert!(!destination.exists());
-        assert_ok(&native(&env, &args));
+        run(&args);
         assert!(!manager_home(&env).join("state/distribution.json").exists());
         assert!(!native(&env, &["harness", "status"]).status.success());
-        assert_ok(&native(
-            &env,
-            &["harness", "status", "--home", destination.to_str().unwrap()],
-        ));
-        let plan = native(
-            &env,
-            &[
-                "harness",
-                "plan",
-                "refresh",
-                "--harness",
-                "claude-code,codex",
-                "--home",
-                destination.to_str().unwrap(),
-            ],
-        );
-        assert_ok(&plan);
+        run(&["harness", "status", "--home", destination.to_str().unwrap()]);
+        let plan = run(&[
+            "harness",
+            "plan",
+            "refresh",
+            "--harness",
+            "claude-code,codex",
+            "--home",
+            destination.to_str().unwrap(),
+        ]);
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&plan.stdout).unwrap()["files"],
             serde_json::json!([])
