@@ -37,7 +37,7 @@ def main():
             parser.error(f"build the native release binary first: {binary}")
     source = repo / "harness"
     expected = verify(binaries[0], source)
-    manifest = json.loads((source / "distribution-manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads((source / "content-lock.json").read_text(encoding="utf-8"))
     destination = args.output.resolve()
     destination.mkdir(parents=True, exist_ok=False)
     for binary in binaries:
@@ -51,7 +51,8 @@ def main():
         target = payload_path(payload, item["path"])
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(payload_path(source, item["path"]), target)
-    shutil.copy2(source / "distribution-manifest.json", payload / "distribution-manifest.json")
+    for metadata in ("content-manifest.json", "content-lock.json"):
+        shutil.copy2(source / metadata, payload / metadata)
     if verify(destination / binaries[0].name, payload) != expected:
         raise SystemExit("payload changed while packaging; rebuild from a stable checkout")
     shutil.copy2(repo / "LICENSE", destination / "LICENSE")

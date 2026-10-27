@@ -19,10 +19,12 @@ fn argument_bounds_reject_oversize_and_control_characters() {
 }
 
 #[test]
-fn packaged_source_requires_manifest_not_python_entrypoint() {
+fn packaged_source_requires_locked_content_not_python_entrypoint() {
     if std::env::var_os(harness_embed::SOURCE_ENV).is_some() {
         return;
     }
     let source = harness_embed::embedded_source_dir().unwrap();
-    assert!(source.join("distribution-manifest.json").is_file());
+    assert!(source.join("content-manifest.json").is_file());
+    assert!(source.join("content-lock.json").is_file());
+    assert!(!source.join("scripts").exists());
 }

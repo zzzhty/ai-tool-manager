@@ -10,9 +10,9 @@
 
 应用内置 Codex / GLM 主动额度查询界面：默认不做后台轮询，查不到或无权限的值保持未知，不虚构进度条。Linux 端使用 Secret Service + AES-GCM 安全存储、加密备份和受控文件更新；首次连接会在会话 keyring 中创建本应用专用的随机主密钥。行为、协议来源、支持边界与复现入口见 [本地实现与验证记录](docs/CODEX_GLM_LINUX.md)。
 
-## 内置技能分发引擎（harness）
+## 固定版本内容分发（harness）
 
-Harness 分发由 `atm-core::distribution::Service` 的 Rust 实现负责，CLI 与 GUI 调用同一 application service。`harness/` 保存声明式内容和可选 payload runtime；分发不调用 Python `machine.py`、`engine.py` 或隐藏 fallback。默认 manager home 为 `~/.atm`，可用绝对路径 `ATM_HOME` 覆盖。
+Harness 分发由 `atm-core::distribution::Service` 的 Rust 实现负责，CLI 与 GUI 调用同一 application service。`content/omh.lock.json` 固定 OMH 发布版本；生成的 `harness/` 保存已验证的离线 payload；分发不调用 Python `machine.py`、`engine.py` 或隐藏 fallback。默认 manager home 为 `~/.atm`，可用绝对路径 `ATM_HOME` 覆盖。
 
 - `atm harness bootstrap` 校验版本化 manifest 和每个内容摘要，生成 canonical catalog JSON，再缓存选定发布内容；`sync` 更新缓存引用。两者都不需要 Python、不下载解释器、不启用 hooks。完整缓存可离线安装、更新、卸载静态 skills。
 - `atm harness export/import/fetch` 使用独立内容清单和版本锁；导入只建立缓存，不写安装记录或启用 hooks。目标路径策略固定在 ATM 的 `policy/harnesses/`，远端内容不能决定写入位置。契约与兼容边界见 [OMH 内容契约](docs/OMH_CONTENT_CONTRACT.md)。
@@ -22,7 +22,7 @@ Harness 分发由 `atm-core::distribution::Service` 的 Rust 实现负责，CLI 
 - 历史事件、报告和文档审计 helper 位于 `harness/runtimes/watcher/`，只读 Rust catalog 快照，不扫描整仓或导入 Python 安装器。四个交互工作流保留在 `plugins/maintenance/`；历史 `watcher:<skill>` 身份与 attribution overlays 保持可读，用户日志不改写。skill-watcher hook 和自动采集入口已退役；仅保留基于 ownership 的旧条目卸载，保留日志、报告和用户文件。
 - 旧 Python 状态只能通过显式 `atm harness adopt` 一次性交接。普通 bootstrap/sync 不自动收编；不长期维护两个分发引擎。没有自动部署、刷新本机入口或变更 PATH。
 
-使用说明见 [Harness 工作流](harness/README.md)；本次迁移的验证范围见 [验收矩阵](docs/ACCEPTANCE_MATRIX.md)。此前平台 CI 通过记录不是新 Rust 分发的原生平台验收。
+使用说明见 [Harness 工作流](docs/HARNESS_USAGE.md)；本次迁移的验证范围见 [验收矩阵](docs/ACCEPTANCE_MATRIX.md)。此前平台 CI 通过记录不是新 Rust 分发的原生平台验收。
 
 ## 本地技能管理
 
@@ -63,6 +63,8 @@ atm harness bootstrap|sync|status [--home PATH] [--json]
 atm harness adopt [--home PATH] [--retire-missing ID[,ID...]] --dry-run
 atm harness adopt [--home PATH] [--retire-missing ID[,ID...]]
 atm harness recover [--home PATH]
+atm harness migrate --to /absolute/new-home --source /absolute/payload --dry-run
+# 已准备 runtime 时 apply 需要 --python /absolute/python；保留旧数据与恢复记录。
 atm harness plan install --harness zcode
 # 仅在需要选定 Python payload 时准备；Windows 同样传绝对路径
 atm harness runtime prepare workflow --python /absolute/path/to/python3 --offline
@@ -129,6 +131,7 @@ Linux / Windows / macOS 的功能支持状态、合成 GUI/CLI 验证步骤与�
 以下 Python 脚本属于开发/发布验证工具；被测 CLI 的静态生命周期在空 `PATH` 和临时用户目录中运行。完整包验收同时通过 `atm-desktop --verify-distribution` 检查内嵌前端及相邻 payload；该只读检查不初始化窗口或安全存储，也不代表交互界面验收：
 
 ```bash
+python3 scripts/Prepare-Content.py
 npm run build
 cargo build --locked --release -p atm -p atm-cli
 python3 scripts/Package-Release.py --output artifacts/ai-tooling-manager-local
@@ -195,10 +198,10 @@ DPAPI / 会话 keyring / Keychain 不能防御同一用户下的恶意进程、�
 ## 源码与重现验证
 
 - `crates/atm-core`：`application/` 统一配置预览/模板/额度编排，桌面仅保留 IPC、授权与窗口适配；`tool_catalog` 从引擎 registry 构建工具目录。另含DPAPI / Secret Service / Keychain 安全存储、命名密钥库、规范路径与指纹、JSONC 源范围编辑、结构模板与 schema 校验、批量处理和回滚、Codex/GLM 额度探测、harness 引擎记录态快照、machine v1 生命周期接口与内嵌源物化（`harness_embed`）。
-- `harness/`：registry、版本化分发 manifest、技能 payload 和可选 `runtimes/watcher`。`crates/atm-core/src/distribution/` 拥有 Rust 分发服务；`harness/scripts/` 仅保留开发验证和身份生成工具，不进入分发 runtime。插件内容改动完成后运行一次 `update_plugin_generations.py`，再重新封存 manifest 并验证；遵循 `harness/AGENTS.md`。
+- `policy/`：ATM 的目标策略与已发布状态 schema。`content/omh.lock.json` 固定独立 OMH 内容发布；`python scripts/Prepare-Content.py` 调用 Rust 导入器生成忽略提交的 `harness/`。技能源、开发工具和内容语义测试由 OMH 维护；ATM 不再内嵌其完整源码。
 - `apps/desktop`：Tauri 2 壳（`src-tauri`，Tauri commands 与窗口构建）和 TypeScript 前端（`src`，单窗口界面、隔离演示、额度界面）。
 - `apps/desktop/tests` 与 `crates/atm-core/tests`：前端 vitest 测试与 Rust 核心/服务测试，全部用 `FAKE_` 值和每次新建的隔离目录。
-- `scripts/Verify-Local.sh`：离线源码与合成测试验证（fmt、clippy、Rust 测试、前端检查/测试/构建、Python 引擎 compileall+单测（缺依赖时诚实 SKIPPED，`ATM_ENGINE_PYTHON_STRICT=1` 时强制）、源码清单（文件白名单 + `harness/` 目录包含）与凭据模式审计），在子进程内关闭真实对象 opt-in。技能 fixture 的显式构造入口忽略外部工具根覆盖；应用入口保留环境配置语义，详见[隔离说明](docs/ACCEPTANCE_MATRIX.md#linux-本地离线检查)。macOS 原生隔离 GUI 使用 `scripts/Verify-MacOS.sh`；源码检查不能替代原生验证。
+- `scripts/Verify-Local.sh`：离线源码与合成测试验证（fmt、clippy、Rust 测试、前端检查/测试/构建、导入 payload 的 catalog/runtime 健康检查、显式源码文件清单与凭据模式审计；OMH 内容语义测试由其独立仓库维护，ATM CI 从锁定 revision 运行），在子进程内关闭真实对象 opt-in。技能 fixture 的显式构造入口忽略外部工具根覆盖；应用入口保留环境配置语义，详见[隔离说明](docs/ACCEPTANCE_MATRIX.md#linux-本地离线检查)。macOS 原生隔离 GUI 使用 `scripts/Verify-MacOS.sh`；源码检查不能替代原生验证。
 - `scripts/Test-LinuxKeyring.sh` / `Test-LinuxGui.sh` / `Test-TauriGui.ps1`：隔离 keyring 生命周期、Linux 原生 GUI 与 Windows Tauri GUI 冒烟。
 - `scripts/Audit-TrackedSource.ps1`：核对 Git 内实际源码的精确清单、可读性、包装头与明显凭据模式；本机能读和编译不代表没有公司透明加密，核查结论见 `docs/源码包与透明加密核查.md`。
 - `.github/workflows/rust-ci.yml`：Rust/前端静态检查与测试、Windows Tauri 构建、隔离真实 Secret Service 生命周期、Linux GUI 冒烟及 macOS arm64 原生隔离 GUI。工作流只请求源码读取权限，不使用真实 key 或部署服务。

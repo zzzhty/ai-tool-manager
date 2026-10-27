@@ -1,4 +1,0 @@
-interface:
-  display_name: "Prompt Strategy Loop"
-  short_description: "Improve prompts with proportional review"
-  default_prompt: "Use $prompt-strategy-loop to improve a prompt or agent strategy from evidence, a frozen oracle, bounded candidates, and review proportional to the affected behavior."

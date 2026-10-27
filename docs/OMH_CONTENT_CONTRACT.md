@@ -55,13 +55,13 @@ archive/lock pair that cannot be imported until explicitly regenerated elsewhere
 | `distribution-manifest.json`, receipt schema 1, journal | Persisted contracts: keep existing readers, algorithms and recovery. Hub metadata uses separate version-1 schemas; reject ambiguous dual manifests. |
 | `content-manifest.json`, `content-lock.json`, `.omh` | New cross-repository version-1 contracts. The strict Rust implementation is shared by export, import and package verification. |
 | Plugin versions, catalog schema 1, historical `watcher:*` IDs | Preserve semantics and existing validation. Imported content does not establish execution evidence. |
-| `~/.oh-my-harness` | Persisted installation state; this contract does not move it. A separate explicit journaled handoff must preserve backups and rebuild final-path runtimes. |
+| `~/.oh-my-harness` | Persisted installation state; the explicit `migrate` handoff preserves backups and rebuilds final-path runtimes; see `HARNESS_USAGE.md`. |
 
 Rollback before installation is selecting the earlier locked source. Rollback
 after installation uses an explicit service plan and retained receipt/cache;
-changing a Git lock alone does not undo client files. This first change retains
-the current bundled authoring tree until OMH publishes its validated content
-release. A later ATM change pins that release and removes the vendored source.
+changing a Git lock alone does not undo client files. `content/omh.lock.json` pins the independent OMH release. The generated ignored
+`harness/` directory is an offline payload; source instructions, authoring tools
+and semantic tests remain in OMH. ATM no longer vendors that source tree.
 
 ## Verification mapping
 

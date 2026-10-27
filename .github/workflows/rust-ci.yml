@@ -35,6 +35,11 @@ jobs:
             target
           key: ${{ runner.os }}-${{ github.repository }}-rust-v2-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
           restore-keys: ${{ runner.os }}-${{ github.repository }}-rust-v2-${{ hashFiles('Cargo.lock') }}-
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Prepare pinned OMH content with Rust
+        run: python scripts/Prepare-Content.py
       - name: Rust stable components
         run: rustup component add rustfmt clippy
       - name: Check formatting
@@ -91,15 +96,31 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: harness
+        working-directory: .validation-cache/omh-source
     env:
       PYTHONDONTWRITEBYTECODE: '1'
-      ATM_ENGINE_PYTHON_STRICT: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Read immutable OMH source revision
+        id: omh
+        working-directory: .
+        run: |
+          python - <<'PYCODE'
+          import json, os
+          from pathlib import Path
+          lock = json.loads(Path('content/omh.lock.json').read_text())
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              print('revision=' + lock['revision'], file=output)
+          PYCODE
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: zzzhty/oh-my-harness
+          ref: ${{ steps.omh.outputs.revision }}
+          path: .validation-cache/omh-source
+          persist-credentials: false
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
@@ -144,6 +165,8 @@ jobs:
             target
           key: linux-desktop-${{ github.repository }}-v2-${{ hashFiles('Cargo.lock') }}-${{ github.event.pull_request.head.sha || github.sha }}
           restore-keys: linux-desktop-${{ github.repository }}-v2-${{ hashFiles('Cargo.lock') }}-
+      - name: Prepare pinned OMH content with Rust
+        run: python scripts/Prepare-Content.py
       - name: Record exact tested head
         run: |
           mkdir -p artifacts/linux-ci
@@ -239,6 +262,8 @@ jobs:
             target
           key: ${{ runner.os }}-${{ github.repository }}-rust-v2-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
           restore-keys: ${{ runner.os }}-${{ github.repository }}-rust-v2-${{ hashFiles('Cargo.lock') }}-
+      - name: Prepare pinned OMH content with Rust
+        run: python scripts/Prepare-Content.py
       - name: Rust static checks
         if: always() && !cancelled() && steps.audit.outcome == 'success' && steps.install.outcome == 'success'
         run: |
@@ -322,7 +347,6 @@ jobs:
       ATM_SKILLS_LIVE: '0'
       ATM_ENGINE_LIVE: '0'
       PYTHONNOUSERSITE: '1'
-      ATM_ENGINE_PYTHON_STRICT: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -353,7 +377,8 @@ jobs:
           rustup component add rustfmt clippy
           npm ci --ignore-scripts
           cargo fetch --locked --target aarch64-apple-darwin
-          python -m pip install -r harness/requirements.txt
+      - name: Prepare pinned OMH content with Rust
+        run: python scripts/Prepare-Content.py
       - name: Native isolated validation without signing or installation
         run: |
           export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"

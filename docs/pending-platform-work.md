@@ -1,6 +1,14 @@
 # 平台集成与后续计划
 
-## 当前：harness Rust 分发迁移（2026-10-26）
+## 当前：独立 OMH 内容与 ATM owner 迁移（2026-10-27）
+
+OMH 负责技能源、脚本、组合与版本；ATM 固定其发布锁，使用同一 Rust 核心导入并分发。
+`harness/` 是忽略提交的生成 payload，完整作者源码已移至独立 OMH 仓库。
+当前接口、恢复约束与测试归属见 [使用说明](HARNESS_USAGE.md) 和
+[ADR 0029](adr/0029-locked-content-and-manager-home-handoff.md)。skill-watcher hooks 已退役。
+真实 Home 的备份、发布包与执行检查点仍保存在本机忽略提交的交接文件；不把历史 CI 套用到后续改动。
+
+## 历史：harness Rust 分发迁移（2026-10-26）
 
 本轮基线为 `df63e0c6bc4acb29d8df508b9f2b62c62b87fdda`，隔离工作分支
 `codex/harness-rust-migration`，工作区位于
@@ -83,7 +91,7 @@ Windows/Linux 的现有功能及技能刷新保护继续保留。macOS 增加原
 
 ## 当前入口与后续验收
 
-当前命令与 runtime 分组见 [README](../README.md) 和 [Harness 工作流](../harness/README.md)。
+当前命令与 runtime 分组见 [README](../README.md) 和 [Harness 工作流](HARNESS_USAGE.md)。
 程序不调用旧 `machine.py`/`engine.py`。源码中的 Python 仅服务于 payload 或开发验证。
 记录态与操作结果经 `harness.rs` / `harness_machine.rs` 转成 GUI 既有视图；能力与用户确认
 不能绕过 ownership、用户修改保护或 journal 恢复边界。

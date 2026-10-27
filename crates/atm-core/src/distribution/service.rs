@@ -63,6 +63,9 @@ pub struct Service {
     inherit_environment: bool,
     target_roots: BTreeMap<String, PathBuf>,
 }
+mod relocation;
+pub use relocation::RelocationPlan;
+
 fn invalid() -> Error {
     Error::new(
         "HARNESS_STATE_INVALID",
@@ -115,6 +118,7 @@ impl Service {
         self.home.join("state/distribution.json")
     }
     fn read_state(&self) -> Result<Option<State>> {
+        self.relocation_guard()?;
         let Some(bytes) = transaction::file_bytes(&self.state_path())? else {
             return Ok(None);
         };
@@ -223,6 +227,7 @@ impl Service {
         Ok(final_path)
     }
     pub fn bootstrap(&self, source_root: &Path, adopt_legacy: bool) -> Result<Value> {
+        self.relocation_guard()?;
         let bundle = source::load(source_root)?;
         let _lock = Lock::acquire(&self.home)?;
         if transaction::pending(&self.home) {
@@ -278,6 +283,7 @@ impl Service {
         lock: &source::hub::ContentLock,
         archive: Option<&Path>,
     ) -> Result<Value> {
+        self.relocation_guard()?;
         let _lock = Lock::acquire(&self.home)?;
         if transaction::pending(&self.home) {
             return Err(Error::new(
@@ -311,6 +317,7 @@ impl Service {
         )
     }
     pub fn plan(&self, operation: &str, targets: &[String]) -> Result<Plan> {
+        self.relocation_guard()?;
         if !["install", "refresh", "repair", "remove"].contains(&operation) || targets.is_empty() {
             return Err(Error::new(
                 "HARNESS_REQUEST",
@@ -326,7 +333,7 @@ impl Service {
             ));
         }
         let original = transaction::snapshot(&self.state_path())?;
-        let mut state: State = match &original {
+        let state: State = match &original {
             Some(Node::File(bytes)) => decode_state(bytes)?,
             _ => return Err(uninstalled()),
         };
@@ -338,6 +345,16 @@ impl Service {
         } else {
             Some(self.bundle(&state)?)
         };
+        self.plan_from_state(operation, targets, original, state, bundle)
+    }
+    fn plan_from_state(
+        &self,
+        operation: &str,
+        targets: &[String],
+        original: Option<Node>,
+        mut state: State,
+        bundle: Option<source::Bundle>,
+    ) -> Result<Plan> {
         let mut changes = Vec::new();
         let mut guards = Vec::new();
         let mut selected = BTreeSet::new();
@@ -609,6 +626,7 @@ impl Service {
         })
     }
     pub fn apply(&self, plan: Plan) -> Result<Value> {
+        self.relocation_guard()?;
         if plan.home != self.home {
             return Err(invalid());
         }
@@ -625,6 +643,10 @@ impl Service {
         self.apply(self.plan(operation, targets)?)
     }
     pub fn recover(&self) -> Result<Value> {
+        if let Some(result) = self.recover_relocation()? {
+            return Ok(result);
+        }
+        self.relocation_guard()?;
         let _lock = Lock::acquire(&self.home)?;
         transaction::recover(&self.home)?;
         self.status()
@@ -669,6 +691,7 @@ impl Service {
         external_venv: Option<&Path>,
         offline: bool,
     ) -> Result<Value> {
+        self.relocation_guard()?;
         let _lock = Lock::acquire(&self.home)?;
         if transaction::pending(&self.home) {
             return Err(Error::new(
@@ -711,6 +734,7 @@ impl Service {
         if enable {
             return Err(hooks::retired());
         }
+        self.relocation_guard()?;
         let _lock = if dry_run {
             None
         } else {
@@ -806,6 +830,7 @@ impl Service {
         }))
     }
     pub fn adopt(&self, source_root: &Path, retire_missing: &[String]) -> Result<Value> {
+        self.relocation_guard()?;
         let bundle = source::load(source_root)?;
         let _lock = Lock::acquire(&self.home)?;
         self.apply_adoption(&bundle, retire_missing)
@@ -823,6 +848,7 @@ impl Service {
         bundle: &source::Bundle,
         retire_missing: &[String],
     ) -> Result<AdoptionPlan> {
+        self.relocation_guard()?;
         if transaction::pending(&self.home) {
             return Err(Error::new(
                 "HARNESS_RECOVERY_REQUIRED",

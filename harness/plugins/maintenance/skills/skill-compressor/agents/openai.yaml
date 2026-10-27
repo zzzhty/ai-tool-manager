@@ -1,4 +1,0 @@
-interface:
-  display_name: "Skill Compressor"
-  short_description: "Compress skills with scoped validation"
-  default_prompt: "Use $skill-compressor to reduce a skill or plugin instruction footprint while preserving required behavior with a recoverable baseline and checks owned by the changed surface."

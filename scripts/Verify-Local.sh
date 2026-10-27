@@ -19,23 +19,10 @@ cargo test --locked --offline -p atm-core -p atm-cli -p atm --no-default-feature
 npm run check
 npm test
 npm run build
-# Optional Python payload and developer tooling suite. Unit tests need
-# PyYAML importable by the runner. Without them the suite is an
-# honest SKIPPED (never a fabricated pass); the retained ATM_ENGINE_PYTHON_STRICT=1
-# flag requires these developer dependencies; static distribution has no Python requirement.
-python3 -m compileall -q harness/scripts harness/tests harness/runtimes/watcher harness/plugins/maintenance harness/plugins/workflow
-if python3 -c "import yaml" 2>/dev/null; then
-  PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s harness/tests -p "test_*.py"
-  PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s harness/runtimes/watcher/tests -p "test_*.py"
-  PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s harness/plugins/maintenance/tests -p "test_*.py"
-  PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s harness/plugins/workflow/tests -p "test_*.py"
-  (cd harness && python3 scripts/check_plugin_generations.py >/dev/null)
-elif [[ "${ATM_ENGINE_PYTHON_STRICT:-0}" == "1" ]]; then
-  echo "PYTHON_SUITE=FAIL: tooling dependencies missing (yaml) in strict mode" >&2
-  exit 1
-else
-  echo "PYTHON_SUITE=SKIPPED (tooling deps unavailable; run pip install -r harness/requirements.txt)"
-fi
+# OMH owns authoring and semantic suites; CI runs them from the immutable locked
+# revision in the independent repository. Here exercise the imported runtime and
+# catalog with the explicit runner; static ATM still receives empty PATH.
+python3 scripts/Test-Distribution.py --payload-only "$atm_repo/harness" --cli "$atm_repo/target/debug/atm"
 git diff --check
 python3 - <<'PY'
 import json, re, subprocess

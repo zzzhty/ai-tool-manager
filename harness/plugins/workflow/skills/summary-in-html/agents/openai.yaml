@@ -1,4 +1,0 @@
-interface:
-  display_name: "Summary In HTML"
-  short_description: "Generate HTML summaries and source-code walkthroughs"
-  default_prompt: "Use $summary-in-html to generate a standalone developer summary or entry-first source-code walkthrough for this scope."
