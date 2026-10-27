@@ -19,7 +19,7 @@ Harness 分发由 `atm-core::distribution::Service` 的 Rust 实现负责，CLI 
 - Rust 拥有来源校验、版本锁定、缓存、计划、应用、适配器、receipt、锁及 journal 恢复。一个物理目标只有一个 owner；同名外来文件和用户修改会阻止变更，不按文件名猜测接管。跨文件操作由 journal 保护，不宣称完全原子；中断后显式执行 `atm harness recover`。
 - 状态查询只读记录，不创建安装、不探测 Python、不解释为实时健康。主动 `check`/`doctor` 检查已记录文件与缓存；发现旧 skill-watcher hook 时提示显式退役，不启动 Python。GUI 仍要求明确目标与一次操作确认。
 - Python 只属于声明了它的内容脚本。`runtime prepare` 需要显式解释器绝对路径，按依赖组和内容版本创建最终路径 venv，检查成功后才切换引用。外部 venv 只验证；不修改项目 `.venv` 或全局 Python。离线缺 wheel/依赖会明确报错，旧有效环境保留。
-- 历史事件、报告和文档审计 helper 位于 `harness/runtimes/watcher/`，只读 Rust catalog 快照，不扫描整仓或导入 Python 安装器。四个交互工作流保留在 `plugins/maintenance/`；历史 `watcher:<skill>` 身份与 attribution overlays 保持可读，用户日志不改写。skill-watcher hook 和自动采集入口已退役；仅保留基于 ownership 的旧条目卸载，保留日志、报告和用户文件。
+- OMH 1.1.0 的审计与验证脚本归各 skill 所有；维护包保留 doc-alignment、housekeeping、skill-compressor。旧 Watcher 采集、历史报告读取和 skill-maintainer 已退役；现有 `mattpocock-skills:writing-for-agents` 负责 agent 指令编写。ATM 通用 ownership、venv 和旧 hook 卸载能力仍保留，真实用户日志、报告和缓存不因内容锁变更而改写。
 - 旧 Python 状态只能通过显式 `atm harness adopt` 一次性交接。普通 bootstrap/sync 不自动收编；不长期维护两个分发引擎。没有自动部署、刷新本机入口或变更 PATH。
 
 使用说明见 [Harness 工作流](docs/HARNESS_USAGE.md)；本次迁移的验证范围见 [验收矩阵](docs/ACCEPTANCE_MATRIX.md)。此前平台 CI 通过记录不是新 Rust 分发的原生平台验收。
@@ -127,6 +127,8 @@ Linux / Windows / macOS 的功能支持状态、合成 GUI/CLI 验证步骤与�
 发布包包含 `atm`、`atm-desktop` 和相邻的 `harness/` manifest 允许清单。完整 Python 分发脚本树不进入包。整体解压后使用；升级程序包后运行 `atm harness sync`，再对已安装目标执行 `atm update skills --harness <ID>`。缓存版本和 runtime 环境不会随意搬移；未完成操作通过 `atm harness recover` 按 journal 恢复，遇到用户后续修改则停止并保留证据。
 
 静态 skills 与 status 无需 Python。只有显式选定的 Python payload 需要声明版本的解释器与独立 venv；runtime 准备命令返回可直接使用的解释器路径。release 构建只读取相邻 `harness/` 或显式绝对路径 `ATM_ENGINE_SOURCE`，不会回退到构建机源码目录。便携包未签名；Windows 仍需 WebView2，Linux 桌面仍需 WebKitGTK，会话 keyring 仅供配置加密功能使用。
+
+ATM 应用保持 `0.2.0`，OMH 纯 Hub 内容使用独立的 `1.1.0` 版本线。无需桌面的用户可只构建 `atm-cli`，使用 `Package-Release.py --cli-only` 打包；完整步骤见 [Harness 使用文档](docs/HARNESS_USAGE.md#independent-versions-and-cli-only-packages)。CLI 与桌面共享同一 manager/receipt，不创建 OMH 的第二个 owner。
 
 以下 Python 脚本属于开发/发布验证工具；被测 CLI 的静态生命周期在空 `PATH` 和临时用户目录中运行。完整包验收同时通过 `atm-desktop --verify-distribution` 检查内嵌前端及相邻 payload；该只读检查不初始化窗口或安全存储，也不代表交互界面验收：
 

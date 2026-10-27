@@ -42,18 +42,22 @@ def verify_runtime_payload(cache: Path, manifest: dict, identity: str, env: dict
     for entry in manifest["files"]:
         if entry["path"].endswith(".py"):
             ast.parse((cache / entry["path"]).read_text(encoding="utf-8"), filename=entry["path"])
-    watcher = cache / "runtimes/watcher/scripts/watcher"
-    assert watcher.is_file() and not (cache / "scripts").exists()
+    assert not (cache / "scripts").exists()
+    assert not (cache / "runtimes/watcher").exists()
+    assert catalog["attributionOverlays"] == []
+    assert manifest["historicalIdentities"] == {}
+    assert "maintenance:doc-alignment" in ids
+    assert "mattpocock-skills:writing-for-agents" in ids
+    assert not any("skill-maintainer" in name or name.startswith("watcher:") for name in ids)
+    assert {group["id"] for group in manifest["runtimeGroups"]} == {"maintenance", "workflow"}
     before = {path.relative_to(root) for path in root.rglob("*")}
-    assert not (cache / "runtimes/watcher/scripts/watcher_runtime/skill/codex_hook_adapter.py").exists()
-    # Exercise retained catalog reading with the runner's Python; no collector,
-    # installer or client process participates and no history is rewritten.
-    code = "from pathlib import Path; import sys; sys.path.insert(0,sys.argv[1]); from watcher_runtime.skill.catalog_metadata import discover_skill_metadata; m=discover_skill_metadata(sys.argv[2]); assert m['legacy_names']['maintenance:doc-alignment']=='watcher:doc-alignment'; assert m['legacy_names']['doc-watcher:doc-alignment']=='watcher:doc-alignment'"
-    subprocess.run([sys.executable, "-S", "-B", "-c", code, str(cache / "runtimes/watcher/scripts"), str(cache)], cwd=root, env=env, capture_output=True, text=True, encoding="utf-8", timeout=30, check=True)
-    retired = subprocess.run([sys.executable, "-S", "-B", str(watcher), "skill", "observe"], cwd=root, env=env, capture_output=True, text=True, encoding="utf-8", timeout=30)
-    assert retired.returncode != 0 and "unknown skill command: observe" in retired.stderr
+    skill = next(skill for skill in catalog["skills"] if skill["id"] == "maintenance:doc-alignment")
+    script = cache / skill["path"] / "scripts/audit_docs.py"
+    subprocess.run([sys.executable, "-S", "-B", str(script), "--help"], cwd=root, env=env,
+                   capture_output=True, text=True, encoding="utf-8", timeout=30, check=True)
     assert {path.relative_to(root) for path in root.rglob("*")} == before, "read-only payload check wrote files"
-    print(f"DISTRIBUTION_PAYLOAD=PASS: {len(catalog['skills'])} catalog entries, runtime locks/scripts, historical identity, no venv/hooks", flush=True)
+    print(f"DISTRIBUTION_PAYLOAD=PASS: {len(catalog['skills'])} catalog entries, skill-owned helpers, no venv/hooks", flush=True)
+
 
 
 def main():
@@ -63,7 +67,7 @@ def main():
     parser.add_argument("archive", type=Path, nargs="?")
     parser.add_argument("--payload-only", type=Path, help="check a verified payload with an isolated runner")
     parser.add_argument("--cli", type=Path)
-    parser.add_argument("--cli-only", action="store_true", help="label an explicit synthetic CLI-only archive; no desktop release claim")
+    parser.add_argument("--cli-only", action="store_true", help="validate an official CLI-only archive without a desktop executable")
     args = parser.parse_args()
     if args.payload_only:
         if not args.cli:
@@ -91,7 +95,9 @@ def main():
         package, = extracted.iterdir()
         cli = package / ("atm.exe" if os.name == "nt" else "atm")
         desktop = package / ("atm-desktop.exe" if os.name == "nt" else "atm-desktop")
-        if not args.cli_only:
+        if args.cli_only:
+            assert not desktop.exists(), "desktop binary leaked into CLI-only package"
+        else:
             assert desktop.is_file(), "desktop binary missing from release archive"
         user = root / "user"
         user.mkdir()
@@ -147,8 +153,8 @@ def main():
         hidden = package / "hidden-harness"
         source.rename(hidden)
         try:
+            assert "HARNESS_SOURCE_MISSING" in run("harness", "verify-source", success=False).stderr
             if not args.cli_only:
-                assert "HARNESS_SOURCE_MISSING" in run("harness", "verify-source", success=False).stderr
                 assert "HARNESS_SOURCE_MISSING" in run("--verify-distribution", program=desktop, success=False).stderr
             run("install", "skills", "--harness", "zcode")
             run("update", "skills", "--harness", "zcode")
@@ -179,7 +185,7 @@ def main():
         finally:
             hidden.rename(source)
         run("harness", "sync")
-        scope = "synthetic CLI-only archive" if args.cli_only else "complete extracted release (CLI lifecycle + desktop resources + runtime payload)"
+        scope = "extracted CLI-only release" if args.cli_only else "complete extracted release (CLI lifecycle + desktop resources + runtime payload)"
         print(f"DISTRIBUTION_SMOKE=PASS: {scope}, empty PATH, offline cache, Unicode/spaces, "
               "plan/apply, native Codex projection, status, user-edit conflict and configuration preservation")
 
