@@ -214,7 +214,7 @@ fn native_path(path: &Path) -> Result<PathBuf> {
 
 /// Rename without replacing a newly appeared destination. Unsupported native
 /// operations fail closed; there is no check-then-overwrite fallback.
-fn rename_exclusive(from: &Path, to: &Path) -> Result<()> {
+pub(super) fn rename_exclusive(from: &Path, to: &Path) -> Result<()> {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         use std::{ffi::CString, os::unix::ffi::OsStrExt};

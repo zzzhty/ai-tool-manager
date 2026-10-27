@@ -50,6 +50,10 @@ const USAGE: &str = "用法（动词优先；--harness 选择内置引擎，省�
   atm harness plan <install|refresh|remove|repair> --harness <ID>[,<ID>...]
   atm harness runtime prepare <GROUP> --python <ABS_PATH> [--external-venv <ABS_PATH>] [--offline]
   atm harness verify-source [--source <ABS_PATH>]       # 校验发布内容
+  atm harness import --lock <ABS_PATH> [--archive <ABS_PATH>] [--home PATH]
+                                                      # 仅导入固定版本缓存；另行 sync/apply
+  atm harness fetch --lock <ABS_PATH> --output <ABS_PATH> # 构建/离线包准备，不改安装记录
+  atm harness export --source <ABS_PATH> --output <ABS_PATH> --repository <URL> --revision <SHA> --url <URL> [--composition NAME]
   atm harness -- <known-command> ...                    # 同一 Rust 命令空间；无脚本逃生口
   atm help";
 
@@ -138,7 +142,8 @@ fn parse(rest: &[String], options: &[&'static str]) -> Result<Parsed> {
         // Value options consume the following token, never an inline value.
         match argument {
             "--harness" | "--to" | "--from" | "--name" | "--home" | "--source" | "--python"
-            | "--external-venv" | "--retire-missing" => {
+            | "--external-venv" | "--retire-missing" | "--output" | "--repository"
+            | "--revision" | "--url" | "--composition" | "--lock" | "--archive" => {
                 index += 1;
                 let value = rest.get(index).ok_or_else(usage_error)?;
                 if value.is_empty() || value.starts_with('-') {
@@ -153,6 +158,13 @@ fn parse(rest: &[String], options: &[&'static str]) -> Result<Parsed> {
                     "--python" => "--python",
                     "--external-venv" => "--external-venv",
                     "--retire-missing" => "--retire-missing",
+                    "--output" => "--output",
+                    "--repository" => "--repository",
+                    "--revision" => "--revision",
+                    "--url" => "--url",
+                    "--composition" => "--composition",
+                    "--lock" => "--lock",
+                    "--archive" => "--archive",
                     _ => "--name",
                 };
                 parsed.values.push((key, value.clone()));
@@ -504,6 +516,9 @@ fn dispatch_harness(rest: &[String]) -> Result<i32> {
     if subcommand == "runtime" {
         return prepare_runtime(rest);
     }
+    if matches!(subcommand, "export" | "fetch" | "import") {
+        return content_operation(subcommand, rest);
+    }
     if subcommand == "plan" {
         let parsed = parse(rest, &["--home", "--harness"])?;
         let [operation] = parsed.positionals.as_slice() else {
@@ -559,6 +574,54 @@ fn dispatch_harness(rest: &[String]) -> Result<i32> {
         _ => unreachable!(),
     };
     print_result(&value)
+}
+
+fn content_operation(operation: &str, args: &[String]) -> Result<i32> {
+    let options: &[&str] = match operation {
+        "export" => &[
+            "--source",
+            "--output",
+            "--repository",
+            "--revision",
+            "--url",
+            "--composition",
+        ],
+        "fetch" => &["--lock", "--output"],
+        "import" => &["--lock", "--archive", "--home"],
+        _ => unreachable!(),
+    };
+    let parsed = parse(args, options)?;
+    if !parsed.positionals.is_empty() {
+        return Err(usage_error());
+    }
+    let required = |key: &str| value_of(&parsed, key).ok_or_else(usage_error);
+    let path = |key: &str| -> Result<PathBuf> {
+        let path = PathBuf::from(required(key)?);
+        if !path.is_absolute() {
+            return Err(usage_error());
+        }
+        Ok(path)
+    };
+    if operation == "export" {
+        return print_result(&source::hub::export(
+            &path("--source")?,
+            &path("--output")?,
+            &required("--repository")?,
+            &required("--revision")?,
+            &required("--url")?,
+            &value_of(&parsed, "--composition").unwrap_or_else(|| "default".into()),
+        )?);
+    }
+    let lock = source::hub::read_lock(&path("--lock")?)?;
+    if operation == "fetch" {
+        let output = path("--output")?;
+        let bundle = source::hub::fetch(&lock, &output)?;
+        return print_result(
+            &serde_json::json!({"source":output,"contentIdentity":bundle.identity,"releaseVersion":bundle.release}),
+        );
+    }
+    let archive = value_of(&parsed, "--archive").map(PathBuf::from);
+    print_result(&distribution_service(&parsed)?.import_content(&lock, archive.as_deref())?)
 }
 
 /// The old `harness --` namespace accepts a bounded set of Rust operations.

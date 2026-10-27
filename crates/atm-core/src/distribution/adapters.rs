@@ -184,7 +184,10 @@ pub fn plan_owned_selected(
     if !cache_root.is_absolute() || !skills_root.is_absolute() {
         return Err(invalid());
     }
-    let registry = json_file(bundle, ".agents/harnesses/registry.json")?;
+    // Target paths and capabilities are local ATM policy, never supplier authority.
+    let registry: Value =
+        serde_json::from_slice(include_bytes!("../../../../policy/harnesses/registry.json"))
+            .map_err(|_| invalid())?;
     let harnesses = registry
         .get("harnesses")
         .and_then(Value::as_object)

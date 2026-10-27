@@ -200,10 +200,12 @@ impl Service {
             for (path, bytes) in &bundle.files {
                 transaction::atomic_write(&stage.join(path), bytes)?;
             }
-            transaction::atomic_write(
-                &stage.join("distribution-manifest.json"),
-                &encode(&bundle.manifest)?,
-            )?;
+            if bundle.manifest["schemaVersion"] == 1 {
+                transaction::atomic_write(
+                    &stage.join("distribution-manifest.json"),
+                    &encode(&bundle.manifest)?,
+                )?;
+            }
             transaction::atomic_write(
                 &stage.join("canonical-catalog.json"),
                 &encode(&bundle.catalog)?,
@@ -268,6 +270,31 @@ impl Service {
         };
         transaction::apply(&self.home, vec![change])?;
         self.status()
+    }
+    /// Import is an inactive cache operation. Selecting a source and applying to
+    /// clients remain explicit sync and plan/apply operations.
+    pub fn import_content(
+        &self,
+        lock: &source::hub::ContentLock,
+        archive: Option<&Path>,
+    ) -> Result<Value> {
+        let _lock = Lock::acquire(&self.home)?;
+        if transaction::pending(&self.home) {
+            return Err(Error::new(
+                "HARNESS_RECOVERY_REQUIRED",
+                "先恢复未完成的 Rust 分发事务。",
+            ));
+        }
+        self.read_state()?;
+        let output = self.cache(&lock.content_identity);
+        let bundle = if let Some(archive) = archive {
+            source::hub::import_archive(archive, lock, &output)?
+        } else {
+            source::hub::fetch(lock, &output)?
+        };
+        Ok(
+            json!({"imported":true,"selected":false,"source":output,"contentIdentity":bundle.identity,"releaseVersion":bundle.release,"hooksEnabled":false}),
+        )
     }
     pub fn status(&self) -> Result<Value> {
         let Some(state) = self.read_state()? else {
