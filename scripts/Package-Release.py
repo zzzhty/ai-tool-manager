@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package native binaries and the manifest allowlist; Python is build tooling only."""
+"""Package the CLI or complete desktop release with the verified content allowlist."""
 import argparse
 import json
 import platform
@@ -28,10 +28,12 @@ def payload_path(root: Path, raw: str) -> Path:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--cli-only", action="store_true", help="package atm and content without the desktop application")
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
     suffix = ".exe" if sys.platform == "win32" else ""
-    binaries = [repo / "target/release" / (name + suffix) for name in ("atm", "atm-desktop")]
+    names = ("atm",) if args.cli_only else ("atm", "atm-desktop")
+    binaries = [repo / "target/release" / (name + suffix) for name in names]
     for binary in binaries:
         if not binary.is_file():
             parser.error(f"build the native release binary first: {binary}")
@@ -56,18 +58,20 @@ def main():
     if verify(destination / binaries[0].name, payload) != expected:
         raise SystemExit("payload changed while packaging; rebuild from a stable checkout")
     shutil.copy2(repo / "LICENSE", destination / "LICENSE")
+    layout = ("Keep atm and harness/ together. No desktop executable or GUI runtime is required.\n"
+              if args.cli_only else "Keep atm, atm-desktop and harness/ together when extracting or upgrading.\n")
+    launch = ("CLI: ./atm help (Windows: .\\atm.exe help).\n" if args.cli_only
+              else "CLI: ./atm help (Windows: .\\atm.exe help). Desktop: atm-desktop.\n")
+    signing = "This portable build is unsigned." + ("" if args.cli_only else " Native desktop runtime requirements apply.") + "\n"
     (destination / "README.txt").write_text(
-        "AI Tooling Manager (atm)\n\n"
-        "Keep atm, atm-desktop and harness/ together when extracting or upgrading.\n"
-        "CLI: ./atm help (Windows: .\\atm.exe help). Desktop: atm-desktop.\n"
+        "AI Tooling Manager (atm)\n\n" + layout + launch +
         "Static skills distribution and recorded status do not require Python.\n"
         "Run: atm harness bootstrap; after upgrading: atm harness sync.\n"
         "Then: atm update skills --harness <ID> to reapply recorded distributions.\n"
         "Python payload runtimes require explicit preparation with an absolute interpreter.\n"
         "Skill-watcher hooks are retired; only receipt-based removal of old entries remains.\n"
         "ATM_HOME selects manager state. Legacy Python state requires explicit atm harness adopt.\n"
-        "This portable build is unsigned. Native desktop runtime requirements apply.\n"
-        f"Platform: {sys.platform} {platform.machine()}\n", encoding="utf-8")
+        + signing + f"Platform: {sys.platform} {platform.machine()}\n", encoding="utf-8")
     archive = shutil.make_archive(str(destination), "zip" if sys.platform == "win32" else "gztar",
                                   destination.parent, destination.name)
     print(f"DISTRIBUTION_PACKAGE={archive}")

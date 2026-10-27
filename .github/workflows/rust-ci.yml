@@ -17,6 +17,46 @@ concurrency:
   group: rust-ci-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  cli-only:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.validation_scope == 'all' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cli-only-${{ hashFiles('Cargo.lock') }}-${{ github.event.pull_request.head.sha || github.sha }}
+          restore-keys: ${{ runner.os }}-cli-only-${{ hashFiles('Cargo.lock') }}-
+      - name: Build and validate the CLI package without desktop tooling
+        shell: bash
+        run: |
+          cargo build --locked --release -p atm-cli
+          suffix=""; archive="tar.gz"
+          if [ "$RUNNER_OS" = Windows ]; then suffix=".exe"; archive="zip"; fi
+          python scripts/Prepare-Content.py --cli "target/release/atm${suffix}"
+          python scripts/Package-Release.py --cli-only --output artifacts/atm-cli
+          python scripts/Test-Distribution.py --cli-only "artifacts/atm-cli.${archive}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: atm-cli-${{ runner.os }}
+          path: |
+            artifacts/atm-cli.tar.gz
+            artifacts/atm-cli.zip
+          if-no-files-found: error
   core:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.validation_scope == 'all' }}
     runs-on: ubuntu-latest
@@ -127,11 +167,9 @@ jobs:
       - name: Developer and payload validation dependencies
         run: python -m pip install -r requirements.txt
       - name: Byte-compile payload and developer sources
-        run: python -m compileall -q scripts tests runtimes/watcher plugins/maintenance plugins/workflow
+        run: python -m compileall -q scripts tests plugins/maintenance plugins/workflow
       - name: Developer tooling tests
         run: python -m unittest discover -s tests -p "test_*.py"
-      - name: Watcher runtime tests
-        run: python -m unittest discover -s runtimes/watcher/tests -p "test_*.py"
       - name: Maintenance workflow tests
         run: python -m unittest discover -s plugins/maintenance/tests -p "test_*.py"
       - name: Workflow plugin tests
