@@ -76,6 +76,12 @@ fn controlled_pip_argv_preserves_space_unicode_and_offline_policy() {
     );
 }
 
+// These Unix fixtures create executables while other tests spawn children.
+// A concurrent fork can briefly retain a writable fixture FD until exec, making
+// Linux return ETXTBSY. Serialize fixture lifetimes, not production processes.
+#[cfg(unix)]
+static EXECUTABLE_FIXTURES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(unix)]
 fn fake_python(temp: &Path, fail: bool) -> std::path::PathBuf {
     use std::os::unix::fs::PermissionsExt;
@@ -116,6 +122,7 @@ if [ -f "$prefix/fake-installed" ]; then deps='{"FakeDep":"1.0"}'; else deps='{}
 #[test]
 #[cfg(unix)]
 fn creates_at_final_path_reuses_verified_env_and_keeps_old_on_failure() {
+    let _fixture_lock = EXECUTABLE_FIXTURES.lock().unwrap();
     let temp = tempfile::Builder::new()
         .prefix("TEST_ONLY runtime 空间 ")
         .tempdir()
@@ -149,6 +156,7 @@ fn creates_at_final_path_reuses_verified_env_and_keeps_old_on_failure() {
 #[test]
 #[cfg(unix)]
 fn external_env_is_validated_without_managed_state_or_marker_writes() {
+    let _fixture_lock = EXECUTABLE_FIXTURES.lock().unwrap();
     let temp = tempfile::tempdir().unwrap();
     let interpreter = fake_python(temp.path(), false);
     let external = temp.path().join("user venv");
@@ -178,6 +186,7 @@ fn external_env_is_validated_without_managed_state_or_marker_writes() {
 #[test]
 #[cfg(unix)]
 fn offline_cached_dependencies_and_missing_wheel_diagnosis_use_controlled_pip() {
+    let _fixture_lock = EXECUTABLE_FIXTURES.lock().unwrap();
     let temp = tempfile::tempdir().unwrap();
     let interpreter = fake_python(temp.path(), false);
     let dependency = RuntimeSpec {
@@ -206,6 +215,7 @@ fn offline_cached_dependencies_and_missing_wheel_diagnosis_use_controlled_pip() 
 #[test]
 #[cfg(unix)]
 fn exclusive_lock_and_linked_runtime_root_fail_closed() {
+    let _fixture_lock = EXECUTABLE_FIXTURES.lock().unwrap();
     use std::os::unix::fs::symlink;
     let temp = tempfile::tempdir().unwrap();
     let interpreter = fake_python(temp.path(), false);
@@ -248,6 +258,7 @@ fn exclusive_lock_and_linked_runtime_root_fail_closed() {
 #[test]
 #[cfg(unix)]
 fn prepared_reference_is_bound_to_group_manager_and_current_requirements() {
+    let _fixture_lock = EXECUTABLE_FIXTURES.lock().unwrap();
     let temp = tempfile::tempdir().unwrap();
     let interpreter = fake_python(temp.path(), false);
     let manager = temp.path().join("manager");
