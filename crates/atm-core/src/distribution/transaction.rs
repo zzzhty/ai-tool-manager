@@ -804,7 +804,11 @@ pub fn apply(home: &Path, changes: Vec<Change>) -> Result<()> {
     atomic_write(&path, &encode_journal(&journal)?)?;
     // A committed journal only owns cleanup; subsequent recovery must not undo
     // already committed receipts, including if the user edits a target now.
-    recover(home)
+    // Every durable write has already succeeded, so a cleanup failure keeps
+    // the journal for an explicit `atm harness recover` instead of reporting
+    // the committed operation itself as failed.
+    let _ = recover(home);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1084,6 +1088,35 @@ mod tests {
         fs::write(&path, b"user edit after commit").unwrap();
         recover(temp.path()).unwrap();
         assert_eq!(fs::read(path).unwrap(), b"user edit after commit");
+        assert!(!root.exists());
+    }
+    #[test]
+    fn committed_cleanup_failure_keeps_final_content_and_requires_recovery() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("skill");
+        stage_node(&path, &directory()).unwrap();
+        let mut j = journal(vec![Change {
+            path: path.clone(),
+            before: Some(directory()),
+            after: Some(Node::File(b"replacement".to_vec())),
+        }]);
+        save(temp.path(), &j);
+        forward_swap(&j, 0).unwrap();
+        j.committed = true;
+        save(temp.path(), &j);
+        let root = custody(&j, 0).unwrap();
+        // External interference with the private stage fails only cleanup;
+        // the committed content stays final and the journal demands recovery.
+        fs::create_dir(root.join("new")).unwrap();
+        fs::write(root.join("new/foreign"), b"user stage edit").unwrap();
+        assert!(recover(temp.path()).is_err());
+        assert!(pending(temp.path()));
+        assert_eq!(fs::read(&path).unwrap(), b"replacement");
+        assert!(root.join("new/foreign").is_file());
+        fs::remove_file(root.join("new/foreign")).unwrap();
+        fs::remove_dir(root.join("new")).unwrap();
+        recover(temp.path()).unwrap();
+        assert!(!pending(temp.path()));
         assert!(!root.exists());
     }
     #[test]

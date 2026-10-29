@@ -296,14 +296,12 @@ fn check_cache_tree(
             .file_name()
             .and_then(|s| s.to_str())
             .ok_or_else(invalid)?;
-        // Retain the established transient-bytecode exclusion; no new source
-        // file or client declaration may appear outside the locked inventory.
+        // Only artifact directories are transient; bytecode beside scripts is
+        // an importable file and may not appear outside the locked inventory.
         if matches!(
             name,
             "__pycache__" | ".pytest_cache" | ".mypy_cache" | ".ruff_cache"
-        ) || name.ends_with(".pyc")
-            || name.ends_with(".pyo")
-        {
+        ) {
             continue;
         }
         let relative = path

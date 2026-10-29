@@ -272,6 +272,9 @@ fn allowed(path: &str, manifest: &Manifest) -> bool {
         return true;
     }
     let parts: Vec<_> = path.split('/').collect();
+    // Only artifact directories are transient. Bytecode outside them sits
+    // beside importable scripts and must remain a locked inventory entry,
+    // exactly like an unlisted .py module.
     if parts.iter().any(|p| {
         matches!(
             *p,
@@ -283,9 +286,7 @@ fn allowed(path: &str, manifest: &Manifest) -> bool {
                 | ".venv"
                 | "node_modules"
         )
-    }) || path.ends_with(".pyc")
-        || path.ends_with(".pyo")
-        || parts.last() == Some(&".DS_Store")
+    }) || parts.last() == Some(&".DS_Store")
     {
         return false;
     }

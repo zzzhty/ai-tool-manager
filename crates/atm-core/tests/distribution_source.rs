@@ -303,3 +303,35 @@ fn unlisted_importable_runtime_files_are_not_accepted_in_cache() {
         "HARNESS_SOURCE_INVALID"
     );
 }
+
+#[test]
+fn bare_bytecode_beside_scripts_is_rejected_while_pycache_trees_stay_transient() {
+    let dir = fixture();
+    let path = dir.path().join("distribution-manifest.json");
+    let mut manifest: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    manifest["runtimeGroups"] =
+        json!([{"id":"watcher","minimumPython":[3,11],"requirementsLock":null,"imports":[]}]);
+    fs::write(path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    write(
+        dir.path(),
+        "runtimes/watcher/scripts/watcher",
+        "# TEST_ONLY runtime entry
+",
+    );
+    source::seal(dir.path()).unwrap();
+    write(
+        dir.path(),
+        "runtimes/watcher/scripts/__pycache__/entry.cpython-311.pyc",
+        "TEST_ONLY bytecode",
+    );
+    source::load(dir.path()).unwrap();
+    write(
+        dir.path(),
+        "runtimes/watcher/scripts/json.pyc",
+        "TEST_ONLY bytecode",
+    );
+    assert_eq!(
+        source::load(dir.path()).unwrap_err().code,
+        "HARNESS_SOURCE_INVALID"
+    );
+}

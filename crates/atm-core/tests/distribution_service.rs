@@ -181,6 +181,31 @@ fn complete_cache_runs_offline_and_missing_cache_never_falls_back_to_python() {
     assert!(!skill_path(&skills).exists());
 }
 #[test]
+fn bare_cache_bytecode_fails_closed_while_pycache_artifacts_stay_transient() {
+    let content = fixture();
+    let (_temp, service, home, _skills) = environment();
+    let bundle = source::load(content.path()).unwrap();
+    service.bootstrap(content.path(), false).unwrap();
+    service.execute("install", &targets()).unwrap();
+    let cache = home.join("cache/content").join(&bundle.identity);
+    write(
+        &cache,
+        "plugins/maintenance/skills/housekeeping/__pycache__/helper.cpython-311.pyc",
+        "TEST_ONLY bytecode",
+    );
+    service.execute("refresh", &targets()).unwrap();
+    write(
+        &cache,
+        "plugins/maintenance/skills/housekeeping/json.pyc",
+        "TEST_ONLY bytecode",
+    );
+    assert_eq!(
+        service.execute("refresh", &targets()).unwrap_err().code,
+        "HARNESS_SOURCE_INVALID"
+    );
+    assert_eq!(service.diagnose().unwrap()["passed"], false);
+}
+#[test]
 fn user_modifications_and_same_name_foreign_files_stop_before_mutation() {
     let content = fixture();
     let (_temp, service, _home, skills) = environment();
