@@ -110,8 +110,12 @@ export class DesktopApp {
   }
   private async invalidate(): Promise<void> { this.invalidateLocal(); await this.api.cancelPreview(); }
   private interrupt(): void {
-    this.clearSecret(); this.usage.clearConfirmations(); this.skills.clearConfirmations();
     if (this.disposed || this.applying) return;
+    // A page hidden while an operation is in flight is usually the app's own
+    // system dialog (for example the keyring prompt during a storage
+    // connect), not the user leaving: keep the user's confirmations then.
+    // Leaving while idle still invalidates every confirmation.
+    if (!this.busy) { this.clearSecret(); this.usage.clearConfirmations(); this.skills.clearConfirmations(); }
     this.invalidateLocal();
     // No automatic mutation retry. A delayed preview response is also discarded.
     void this.api.cancelPreview().catch(() => undefined);

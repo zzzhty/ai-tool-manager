@@ -68,6 +68,25 @@ describe('vault safety and lifecycle', () => {
     await vi.waitFor(() => expect(api.saveKey).toHaveBeenCalledTimes(1)); expect(get<HTMLButtonElement>('save-key').disabled).toBe(true);
     pending.resolve(keyId); await ready(); expect(api.saveKey).toHaveBeenCalledTimes(1);
   });
+  it('keeps confirmations when the page hides during an in-flight storage connect', async () => {
+    const pending = deferred<void>(); vi.mocked(api.initializeStorage).mockReturnValue(pending.promise);
+    input('confirm-glm-query').checked = true; change('confirm-glm-query');
+    input('confirm-storage').checked = true; change('confirm-storage');
+    click('connect-storage');
+    await vi.waitFor(() => expect(api.initializeStorage).toHaveBeenCalledTimes(1));
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(input('confirm-glm-query').checked).toBe(true);
+    pending.resolve(undefined); await ready();
+    expect(input('confirm-glm-query').checked).toBe(true);
+    expect(input('confirm-storage').checked).toBe(false);
+  });
+  it('still clears confirmations when the page hides while idle', () => {
+    input('confirm-glm-query').checked = true; change('confirm-glm-query');
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(input('confirm-glm-query').checked).toBe(false);
+  });
   it('clears secret input on cancel, blur and navigation', () => {
     input('key-secret').value = 'FAKE_CANCEL'; click('reset-key'); expect(input('key-secret').value).toBe('');
     input('key-secret').value = 'FAKE_BLUR'; window.dispatchEvent(new Event('blur')); expect(input('key-secret').value).toBe('');
