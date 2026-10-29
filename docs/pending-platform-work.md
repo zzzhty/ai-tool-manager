@@ -1,12 +1,18 @@
 # 平台集成与后续计划
 
-## 当前：独立 OMH 内容与 ATM owner 迁移（2026-10-27）
+## 当前：ATM 0.2.0 绑定 OMH 1.1.0 与独立 CLI 包（2026-10-28）
 
 OMH 负责技能源、脚本、组合与版本；ATM 固定其发布锁，使用同一 Rust 核心导入并分发。
 `harness/` 是忽略提交的生成 payload，完整作者源码已移至独立 OMH 仓库。
 当前接口、恢复约束与测试归属见 [使用说明](HARNESS_USAGE.md) 和
 [ADR 0029](adr/0029-locked-content-and-manager-home-handoff.md)。skill-watcher hooks 已退役。
-真实 Home 的备份、发布包与执行检查点仍保存在本机忽略提交的交接文件；不把历史 CI 套用到后续改动。
+PR #7 将 ATM 0.2.0 绑定 OMH 1.1.0 并提供 CLI-only 打包（CI 新增三平台 cli-only 与锁定源
+Python 作业），PR #8 在 OMH 历史重组后把源锁刷新到 revision b0ea608；main 原生验证全绿
+（run 40627262161：cli-only/core/python-payloads/linux-desktop/desktop/macos-desktop）。
+真实 Home 的 manager-home 迁移已按显式 preview/apply 完成（本机 `~/.atm/state/relocation.json`
+记录 completed）；其内容仍持有 1.2.0 锁下安装的身份，1.1.0 重选仍待显式执行。
+真实 Home 的备份、发布包与执行检查点保存在本机忽略提交的交接目录
+`~/.local/state/atm-deployments/`；不把历史 CI 套用到后续改动。
 
 ## 历史：harness Rust 分发迁移（2026-10-26）
 
@@ -96,6 +102,9 @@ Windows/Linux 的现有功能及技能刷新保护继续保留。macOS 增加原
 记录态与操作结果经 `harness.rs` / `harness_machine.rs` 转成 GUI 既有视图；能力与用户确认
 不能绕过 ownership、用户修改保护或 journal 恢复边界。
 
-继续需要独立证据：Windows 锁/路径/文件替换的原生运行、macOS 原生运行、Codex 实际客户端
-发现与启停、完整桌面发布包的抽取测试。已有 CI 定义不是通过声明。真实安装切换、
-用户 venv、凭据、网络设置、PATH、签名与发布均不在本轮实施权限内。
+Windows/macOS 原生合成执行（Windows core synthetic tests、Tauri GUI 冒烟、完整发布包抽取；
+macOS Verify-MacOS 与包抽取）与 Linux 真实隔离 keyring/GUI 已由 main 原生 CI 覆盖
+（PR #6 head run 40441691206、PR #7 40519377781、PR #8 40624948561、main 40627262161）。
+继续需要独立证据：Codex 实际客户端发现与启停、真实外部 venv/wheel 安装、
+Git-marketplace 旧状态所有权转换。已有 CI 定义不是通过声明；凭据、网络设置、
+PATH、签名与发布不在常规改动权限内。

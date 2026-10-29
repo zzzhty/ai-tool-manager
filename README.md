@@ -28,7 +28,7 @@ Harness 分发由 `atm-core::distribution::Service` 的 Rust 实现负责，CLI 
 
 “本地技能管理”面板直接盘点和操作各工具的技能根目录，**不依赖内置引擎安装**；分发在场时通过共同 receipt 识别其管理的内容并保护：
 
-- 工具目录由引擎 registry 在 Rust 构建时生成，共 10 个工具（Claude Code、Copilot CLI、VS Code、Codex、Z Code、Gemini CLI、OpenCode、OpenClaw、Pi Agent、Oh My Pi）；保留 `copilot` 等输入别名和旧投影收据。VS Code 使用默认 `.copilot`，Copilot CLI 单独尊重 `COPILOT_HOME`，共享实际路径时禁止重复管理并尊重对应环境变量（`CLAUDE_CONFIG_DIR`、`COPILOT_HOME`、`CODEX_HOME`、`GEMINI_CLI_HOME`、`OPENCLAW_STATE_DIR`、`PI_CODING_AGENT_DIR`）；`~/.agents/skills` 与所有点开头条目（含 Codex 系统技能 `.system`）永不列出或触碰。
+- 工具目录由引擎 registry 在 Rust 构建时生成，共 10 个工具（Claude Code、Copilot CLI、VS Code、Codex、Z Code、Gemini CLI、OpenCode、OpenClaw、Pi Agent、Oh My Pi）；保留 `copilot` 等输入别名和旧投影收据。VS Code 使用默认 `.copilot`，Copilot CLI 单独尊重 `COPILOT_HOME`，共享实际路径时禁止重复管理并尊重对应环境变量（`CLAUDE_CONFIG_DIR`、`COPILOT_HOME`、`CODEX_HOME`、`GEMINI_CLI_HOME`、`OPENCLAW_HOME`、`OPENCLAW_PROFILE`、`OPENCLAW_STATE_DIR`、`PI_CODING_AGENT_DIR`）；`~/.agents/skills` 与所有点开头条目（含 Codex 系统技能 `.system`）永不列出或触碰。
 - 盘点按条目分类：内置分发管理内容（链接或 Rust receipt 中的受管副本，**只读**，变更请用 `--harness` 命令）、其它链接（含断链）、本地目录、普通文件；技能名和描述读取 SKILL.md 的受限 frontmatter（仅字面 `name:`/`description:` 行），解析失败保持未知。
 - 安装只接受本机普通目录（含 SKILL.md、不含任何链接或非常规文件），上限 512 文件、8 MB、8 层嵌套；staging 后原子改名，同名条目一律拒绝不覆盖；目标根不存在时自动创建。
 - 卸载的目录技能移动到本管理器数据目录的 `skills-trash/` 保管区，可恢复（原根有同名则拒绝）或彻底删除（模态确认声明不可恢复）；外部链接（含断链）仅供查看，不提供复制或卸载入口，ATM 不触碰链接或其目标。
@@ -74,7 +74,7 @@ atm uninstall hooks --harness codex
 
 旧 `atm skills ...` 名词式语法已随本次合并移除（`inventory→list skills`、`install <SRC> <ROOT> [NAME]→install skills <SRC> --to <ROOT> [--name]`、`trash→list skills --trash`、`refresh→update skills`）。`atm harness --` 只接受受限的已知 Rust 命令，不再转发任意引擎 argv 或 machine 协议；参数限幅（≤64 项/单项 ≤4 KiB/总量 ≤32 KiB）。
 
-投影模型：发布时技能源被收编为本管理器数据目录下的 canonical 副本，投影在 POSIX 用符号链接、Windows 用普通复制（无特权要求；`check` 会逐文件比对副本，`update skills --force` 覆盖被修改副本）。刷新先在目标根的隐藏暂存目录完整审计/复制，成功后受控交接并更新目录身份登记；复制、替换或登记失败会保留/恢复旧副本。缺失的 skills 根经路径与引擎边界检查后重建；仍有缺源、未授权覆盖修改或所有权未知时，`update skills` 返回非 0。强制中断可能留下 `.atm-refresh-old-*` 或 `.atm-staging-*`，需按错误提示核对保留内容，不应直接删除。GUI 的技能盘点会把 ATM 投影标注为“由 ATM 投影管理”；POSIX 链接投影不提供跨根复制，追加投影使用 `atm project skills`；Windows 普通副本仍可复制。投影撤除仅通过 `atm unproject skills`，保证登记一致。
+投影模型：发布时技能源被收编为本管理器数据目录下的 canonical 副本，投影在 POSIX 用符号链接、Windows 用普通复制（无特权要求；`check` 会逐文件比对副本，`update skills --force` 覆盖被修改副本）。刷新先在目标根的隐藏暂存目录完整审计/复制，成功后受控交接并更新目录身份登记；复制、替换或登记失败会保留/恢复旧副本。缺失的 skills 根经路径与引擎边界检查后重建；仍有缺源、未授权覆盖修改或所有权未知时，`update skills` 返回非 0。强制中断可能留下 `.atm-refresh-old-*` 或 `.atm-staging-*`，需按错误提示核对保留内容，不应直接删除。GUI 的技能盘点会把 ATM 投影标注为“由 ATM 投影管理”；POSIX 链接投影不提供跨根复制，追加投影使用 `atm project skills`；Windows 普通副本仍可复制。投影撤除仅通过 `atm unproject skills` 或随源一并撤除的 `atm unpublish skills --with-projections`，两条路径都同步更新登记。
 
 ## 构建与验证
 

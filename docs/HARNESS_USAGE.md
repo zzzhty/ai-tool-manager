@@ -18,8 +18,9 @@ static distribution.
 
 ATM application 0.2.0 binds OMH Hub 1.1.0 by full revision and digests in
 `content/omh.lock.json`; application and content versions are independent.
-This preparation branch must not merge until the pinned release assets are
-public and clean-fetch validation passes.
+The pinned v1.1.0 assets are public and the clean-fetch validation passed
+before this binding merged (PR #7/#8; CI runs 40519377781 and 40624948561,
+then main run 40627262161).
 OMH 1.0.0 is the historical pre-Hub baseline with the old installer and Watcher
 automatic collection hooks. OMH 1.1.0 publishes content only: no distribution
 CLI and no maintained hooks. Auditing and validation scripts belong to their
@@ -52,9 +53,10 @@ package validation. This is local artifact verification, not evidence that the
 release URL works. Do not merge a consumer lock before its public assets are
 available and the ordinary clean-fetch CI has passed.
 
-Changing the source lock does not migrate an existing Home. Preserve installed
-1.2.0 content identities, receipts, caches, venvs and recovery archives; preview
-and apply a future 1.1.0 selection explicitly. Do not relabel those records.
+Changing the source lock does not migrate an existing Home. A Home that
+installed content under the superseded 1.2.0-bound lock keeps those content
+identities, receipts, caches, venvs and recovery archives; moving it to the
+pinned 1.1.0 release remains an explicit preview/apply. Do not relabel records.
 
 ```sh
 atm harness bootstrap

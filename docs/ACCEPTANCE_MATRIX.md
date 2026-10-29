@@ -1,7 +1,9 @@
 # 跨平台合成验收矩阵与操作手册
 
 本页按当前实现区分文档声明、源码能力与实际验证。它是验收入口索引；
-操作语义以代码为准。第 6 节保留 2026-10-25 历史执行记录；当前 Rust 分发迁移的局部证据见第 7 节，不能复用旧 Python 引擎的平台通过声明。
+操作语义以代码为准。第 6 节保留 2026-10-25 历史执行记录；第 7 节是 2026-10-26
+迁移时点的历史检查点；PR #6-#8 合并与 main 之后的原生 CI 证据见第 8 节。
+不能复用旧 Python 引擎的平台通过声明。
 
 ## 1. 证据等级
 
@@ -24,7 +26,7 @@
 | 功能 | D/C：当前实现与测试入口 | T：本次已验证 | 未验证边界 |
 | --- | --- | --- | --- |
 | Linux 安全存储 | Secret Service 存主密钥，AES-GCM 加密 vault/templates/backups；[linux.rs](../crates/atm-core/src/linux.rs)、[Linux 回归](../crates/atm-core/tests/linux.rs) | 内存密钥注入下的加解密、权限、配置替换与备份回归通过 | 真实 Secret Service 生命周期未运行；该测试在本次常规测试中为 ignored，CI 私有 keyring 作业会显式启用 |
-| Windows 安全存储 | DPAPI CurrentUser 加密整包；[windows.rs](../crates/atm-core/src/windows.rs)、[parity 的 Windows 用例](../crates/atm-core/tests/parity.rs) | 无原生 Windows 执行证据 | DPAPI、Windows 文件替换、WebView2 均未验证 |
+| Windows 安全存储 | DPAPI CurrentUser 加密整包；[windows.rs](../crates/atm-core/src/windows.rs)、[parity 的 Windows 用例](../crates/atm-core/tests/parity.rs) | 原生合成执行已入 CI（desktop 作业 Windows core synthetic tests，见第 8 节） | 真实用户会话下的 DPAPI 未验证；文件替换与 WebView2 以 CI 合成/GUI 冒烟为界 |
 | macOS 安全存储 | Keychain 专用条目 + AES-GCM；[macOS 说明](MACOS.md)、[macos.rs 测试](../crates/atm-core/tests/macos.rs) | 部分共享逻辑/模拟后端可在 Linux 测试；不构成 macOS 证据 | macOS 原生用例、真实 Keychain、GUI 未运行；CI 目标为 arm64，Intel/universal 未验证 |
 | 批量更新、JSONC、模板与回滚 | [batch.rs](../crates/atm-core/src/batch.rs)、[JSONC parity](../crates/atm-core/tests/parity.rs)、[模板测试](../crates/atm-core/tests/templates.rs)：逐文件原子替换、完整加密备份、精确源字节和本地 schema 校验 | 共享核心与 Linux 回归通过，含 T01 新增冲突/确认/备份边界和 P01 无转义解析、Unicode/控制字节回归 | Windows/macOS 专属文件语义未验证；合成性能收益不等于 GUI 延迟收益 |
 | Codex / GLM 额度 | [usage 测试](../crates/atm-core/tests/usage.rs)、[Codex 子进程测试](../crates/atm-core/tests/codex_process.rs)；未知值保留未知，固定端点/argv，主动查询 | 合成协议、错误和进程边界测试通过 | 未查询真实账户或额度端点 |
@@ -44,9 +46,9 @@
 
 | 平台 | 入口与前置条件 | 代码中已有的检查 | 本次状态 |
 | --- | --- | --- | --- |
-| Linux | [Test-LinuxGui.sh](../scripts/Test-LinuxGui.sh)；CI 私有 RUNNER_TEMP、X11/xvfb 与 D-Bus；二进制必须以 `--features smoke-tests` 构建 | WebKit 渲染、resize、合成 IPC；Linux/macOS 共用 [native_smoke.js](../apps/desktop/src-tauri/src/native_smoke.js) 驱动确认/取消/重复应用拒绝、写入与回滚、capability 拒绝；Rust 检查最终原文与两份备份 | 未执行 |
-| Windows | [Test-TauriGui.ps1](../scripts/Test-TauriGui.ps1)；Windows、WebView2、原生 exe、隔离 LOCALAPPDATA 与 `--demo` | 启动、UIA 可访问性文本、小窗 resize 和截图；未驱动完整写入/回滚流程 | 未执行 |
-| macOS | [Verify-MacOS.sh](../scripts/Verify-MacOS.sh) → [Test-MacOSGui.py](../scripts/Test-MacOSGui.py)；macOS 图形会话、工具链/缓存，smoke-tests 构建 | 共用原生 IPC 流程；父进程额外独立观察磁盘写入/回滚、0600 备份、暂存与进程组清理 | 未执行；无真实 Keychain 证明 |
+| Linux | [Test-LinuxGui.sh](../scripts/Test-LinuxGui.sh)；CI 私有 RUNNER_TEMP、X11/xvfb 与 D-Bus；二进制必须以 `--features smoke-tests` 构建 | WebKit 渲染、resize、合成 IPC；Linux/macOS 共用 [native_smoke.js](../apps/desktop/src-tauri/src/native_smoke.js) 驱动确认/取消/重复应用拒绝、写入与回滚、capability 拒绝；Rust 检查最终原文与两份备份 | CI linux-desktop 作业已执行（第 8 节） |
+| Windows | [Test-TauriGui.ps1](../scripts/Test-TauriGui.ps1)；Windows、WebView2、原生 exe、隔离 LOCALAPPDATA 与 `--demo` | 启动、UIA 可访问性文本、小窗 resize 和截图；未驱动完整写入/回滚流程 | CI desktop 作业已执行（第 8 节） |
+| macOS | [Verify-MacOS.sh](../scripts/Verify-MacOS.sh) → [Test-MacOSGui.py](../scripts/Test-MacOSGui.py)；macOS 图形会话、工具链/缓存，smoke-tests 构建 | 共用原生 IPC 流程；父进程额外独立观察磁盘写入/回滚、0600 备份、暂存与进程组清理 | CI macos-desktop 作业已执行（第 8 节）；无真实 Keychain 证明 |
 
 Linux 脚本输出 `LINUX_NATIVE_GUI_SMOKE=PASS`，Windows 输出 `TAURI_GUI_SMOKE=PASS`，
 macOS 输出 `MACOS_NATIVE_GUI_SMOKE=PASS`。这些标记只代表对应脚本和当前版本检查到的范围，
@@ -144,7 +146,7 @@ opt-in 后验证通过，六个假目录内容保持不变。HOME/XDG 与引擎�
 macOS Keychain/原生文件行为、真实引擎安装、真实技能根和额度端点；macOS Intel/universal
 及分发签名也无本次证据。历史 CI 绿勾和历史 C# 报告不能替代这些验证。
 
-## 7. 当前 Rust 分发迁移局部证据（2026-10-26）
+## 7. Rust 分发迁移时点局部证据（2026-10-26，历史检查点）
 
 受测基线 `df63e0c6bc4acb29d8df508b9f2b62c62b87fdda` 加
 `codex/harness-rust-migration` 未提交工作区，Linux x86_64。当前已执行：
@@ -161,3 +163,22 @@ macOS Keychain/原生文件行为、真实引擎安装、真实技能根和额�
 后通过。真实内容的 Codex 规划回归随后发现 `agents/operating-principles.md` 未进入封存清单；补齐来源库存后完整 CLI 17 项通过。完整 Rust/前端/payload 集成和发布包验证应以最终交付报告补充，以上计数不包含它们。
 新分发的 Windows/macOS 原生行为、真实 Codex 集成、真实旧状态交接、真实 venv 和用户配置
 均未执行；旧 CI 通过记录不填补这些边界。本轮没有部署、提交、推送或刷新真实 ATM 入口。
+
+## 8. 合并与 main 的原生 CI 证据（2026-10-27/28）
+
+本节取代第 6/7 节“三平台原生 GUI、Windows DPAPI 合成用例、完整发布包抽取未执行”清单中
+已由 CI 覆盖的部分；真实客户端、真实用户会话与真实外部环境仍按第 6 节边界对待。
+引用任一 run 必须核对其精确提交：
+
+- run [40441691206](https://github.com/zzzhty/ai-tooling-manager/actions/runs/40441691206)（PR #6 head 430e19e，7/7）：Windows 路径保留、原生 GUI/keyring 与完整包。
+- run [40519377781](https://github.com/zzzhty/ai-tooling-manager/actions/runs/40519377781)（PR #7 head 8ea55b1，10/10）：ATM 0.2.0 绑定 OMH 1.1.0，含三平台 cli-only 与锁定源 Python 作业。
+- run [40624948561](https://github.com/zzzhty/ai-tooling-manager/actions/runs/40624948561)（PR #8 head，10/10）：OMH 源锁刷新至 revision b0ea608。
+- run [40627262161](https://github.com/zzzhty/ai-tooling-manager/actions/runs/40627262161)（main ebc046d）：全部作业通过。
+
+作业覆盖：`cli-only`（三平台 CLI-only 包空 PATH/离线生命周期）、`core`（fmt/clippy 与合成测试）、
+`python-payloads`（锁定 OMH 源的内容语义测试）、`linux-desktop`（真实隔离 Secret Service 生命周期
+Test-LinuxKeyring.sh、原生 GUI 冒烟、完整包抽取）、`desktop`（Windows：Windows core synthetic
+tests `cargo test --locked -p atm-core -p atm-cli --all-targets`、桌面服务元数据测试、Tauri 构建
+与 Test-TauriGui.ps1 冒烟、包抽取）、`macos-desktop`（Verify-MacOS.sh 原生隔离验证与包抽取）。
+CI 定义存在不等于通过；工作流或受测源码再变更后需重新对应精确提交。真实客户端加载/调用、
+真实用户会话存储、真实外部 venv 与真实安装交接仍未验证。

@@ -4,6 +4,10 @@ status: accepted
 
 # Retire skill-watcher hook collection
 
+> Numbering note: this decision shares number 0028 with
+> `0028-rust-distribution-and-optional-payload-runtimes.md`; both landed in commit
+> 80455ca and the historical filenames are retained. New ADRs continue from 0030.
+
 The user no longer needs automatic skill-watcher collection in new distributions.
 This supersedes the hook activation capability in the Rust migration without
 removing the four maintenance skills or historical evidence.

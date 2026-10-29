@@ -1,5 +1,9 @@
 # ADR 0028: Rust distribution and optional payload runtimes
 
+> Numbering note: this decision shares number 0028 with
+> `0028-retire-skill-watcher-hooks.md`; both landed in commit 80455ca and the
+> historical filenames are retained. New ADRs continue from 0030.
+
 Status: accepted by the user, 2026-10-26. Supersedes ADR 0027's Python distribution execution and whole-tree packaging, preserving its ownership and historical evidence boundaries.
 
 ATM's internal `atm-core::distribution::Service` owns source validation, locked content cache, plans, receipts, client adapters, runtime preparation and hook ownership. CLI and GUI call this service. `machine.py`, `engine.py` and Python installer subprocess fallbacks are retired. No new repository or Hub service is introduced.

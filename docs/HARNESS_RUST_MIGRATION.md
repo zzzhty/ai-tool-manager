@@ -32,7 +32,7 @@ All execution in this change used Linux and disposable homes. Rust core/CLI/serv
 
 Runtime provisioning tests use fake interpreter/pip processes. These validate argv, locks, dependency verification and failure/reference behavior, not successful installation of every real package on every platform. The initial archive smoke used a synthetic CLI-only archive. The subsequent complete release-package checkpoint below supersedes that packaging limitation: both release binaries and the allowlisted payload were packaged, extracted and checked together. The desktop check inspects embedded resources before GUI/storage initialization; no interactive GUI was launched, and no release was published.
 
-Windows/macOS native builds and execution, real clients, real hook execution, real external venvs and clean-Git legacy source handoff remain unverified. Legacy partial/degraded state, pending old journal, user-edited/unrecognized hooks, mismatched target roots and Git-bound Codex marketplace settings fail closed. Cache/runtime versions are retained conservatively; automated garbage collection is outside this change. These refusals never invoke a hidden Python fallback.
+Windows/macOS native builds and synthetic execution are covered by the post-merge native CI runs recorded in the acceptance matrix (section 8). Real clients, real hook execution, real external venvs and clean-Git legacy source handoff remain unverified. Legacy partial/degraded state, pending old journal, user-edited/unrecognized hooks, mismatched target roots and Git-bound Codex marketplace settings fail closed. Cache/runtime versions are retained conservatively; automated garbage collection is outside this change. These refusals never invoke a hidden Python fallback.
 
 The supplied independent OMH commit `e0ce46da5e1cbca5313a6db14401cdfa07b4d5a7` was absent from the local independent clone; no fetch or independent repo edit was performed. Existing report evidence semantics and tests were preserved; this is not a claim of having compared that commit.
 
@@ -126,8 +126,9 @@ with empty PATH, fake HOME/XDG/ATM_HOME and no display/session environment:
 Evidence is retained in `artifacts/harness-rust-migration/`:
 `release-frontend-build.log`, `release-build-linux.log`, `release-package.log`,
 `release-extracted-smoke.log`, `release-handoff-regression.log`, and
-`release-final-checks.log`. Native Windows/macOS package execution, interactive Linux
-GUI rendering and live client/hooks remain unverified. No environment blocker remained
+`release-final-checks.log`. Interactive Linux GUI rendering at this checkpoint and live
+client/hooks remain unverified; native Windows/macOS package execution is covered by the
+post-merge CI (acceptance matrix, section 8). No environment blocker remained
 for this Linux package check. The archive is a local validation artifact, not a deployment.
 
 ## Commit preparation
