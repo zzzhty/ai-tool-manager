@@ -7,7 +7,7 @@ use super::{
 use crate::{Error, Result};
 use serde_json::{json, Value};
 use std::{
-    io::{BufRead, BufReader, Write},
+    io::{self, BufRead, BufReader, Write},
     path::{Path, PathBuf},
     process::{Child, ChildStdin, Command, Stdio},
     sync::mpsc::{self, Receiver, Sender},
@@ -28,6 +28,29 @@ pub struct StdioRpc {
     watchdog: Option<thread::JoinHandle<()>>,
     #[cfg(windows)]
     job: WindowsJob,
+}
+// Only fixed stages, error kinds and numeric OS codes are diagnostic data.
+// Never print paths, arguments, environment values or the OS error's display text.
+fn write_cli_diagnostic(writer: &mut impl Write, stage: &'static str, error: Option<&io::Error>) {
+    // Diagnostics must not turn a recoverable launch failure into a panic if
+    // stderr is closed or unwritable.
+    let _ = match error {
+        Some(error) => writeln!(
+            writer,
+            "Codex CLI startup failed: stage={stage} kind={:?} os_code={:?}",
+            error.kind(),
+            error.raw_os_error()
+        ),
+        None => writeln!(writer, "Codex CLI startup failed: stage={stage}"),
+    };
+}
+fn cli_io_error(stage: &'static str, error: io::Error) -> Error {
+    write_cli_diagnostic(&mut io::stderr(), stage, Some(&error));
+    cli_error()
+}
+fn cli_stage_error(stage: &'static str) -> Error {
+    write_cli_diagnostic(&mut io::stderr(), stage, None);
+    cli_error()
 }
 fn cli_error() -> Error {
     Error::new(
@@ -52,9 +75,14 @@ pub fn executable(path: &Path) -> Result<PathBuf> {
             "请选择 Codex 原生可执行文件；不通过 shell 执行 cmd/bat/PowerShell shim。",
         ));
     }
-    let resolved = path.canonicalize().map_err(|_| cli_error())?;
-    if !resolved.is_file() {
-        return Err(cli_error());
+    let resolved = path
+        .canonicalize()
+        .map_err(|error| cli_io_error("canonicalize", error))?;
+    let metadata = resolved
+        .metadata()
+        .map_err(|error| cli_io_error("metadata", error))?;
+    if !metadata.is_file() {
+        return Err(cli_stage_error("not_file"));
     }
     Ok(resolved)
 }
@@ -101,7 +129,9 @@ impl StdioRpc {
             use std::os::windows::process::CommandExt;
             command.creation_flags(0x08000000);
         }
-        let mut child = command.spawn().map_err(|_| cli_error())?;
+        let mut child = command
+            .spawn()
+            .map_err(|error| cli_io_error("spawn", error))?;
         #[cfg(windows)]
         let job = match WindowsJob::attach(&child) {
             Ok(job) => job,
@@ -111,8 +141,14 @@ impl StdioRpc {
                 return Err(e);
             }
         };
-        let input = child.stdin.take().ok_or_else(cli_error)?;
-        let output = child.stdout.take().ok_or_else(cli_error)?;
+        let input = child
+            .stdin
+            .take()
+            .ok_or_else(|| cli_stage_error("stdin_pipe"))?;
+        let output = child
+            .stdout
+            .take()
+            .ok_or_else(|| cli_stage_error("stdout_pipe"))?;
         let (sender, messages) = mpsc::channel();
         let (watchdog_cancel, cancel) = mpsc::channel();
         #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -323,5 +359,45 @@ impl WindowsJob {
 impl Drop for WindowsJob {
     fn drop(&mut self) {
         self.terminate();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn startup_diagnostic_excludes_error_text_and_preserves_kind_and_os_code() {
+        let mut output = Vec::new();
+        let error = io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "TEST_ONLY_secret_path_token",
+        );
+        write_cli_diagnostic(&mut output, "spawn", Some(&error));
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "Codex CLI startup failed: stage=spawn kind=PermissionDenied os_code=None\n"
+        );
+        let mut output = Vec::new();
+        let error = io::Error::from_raw_os_error(2);
+        write_cli_diagnostic(&mut output, "canonicalize", Some(&error));
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("stage=canonicalize"));
+        assert!(output.contains("os_code=Some(2)"));
+    }
+
+    #[test]
+    fn startup_diagnostic_survives_a_closed_sink() {
+        struct Closed;
+        impl Write for Closed {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                Err(io::ErrorKind::BrokenPipe.into())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        write_cli_diagnostic(&mut Closed, "spawn", Some(&io::ErrorKind::NotFound.into()));
+        write_cli_diagnostic(&mut Closed, "not_file", None);
     }
 }
